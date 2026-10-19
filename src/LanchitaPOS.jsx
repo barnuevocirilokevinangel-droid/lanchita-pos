@@ -36,7 +36,12 @@ import {
   Database,
   PackageOpen,
   ArrowDownToLine,
-  Edit3
+  Edit3,
+  Lock,
+  LogOut,
+  ArrowLeft,
+  KeyRound,
+  ShieldAlert
 } from 'lucide-react';
 
 // Firebase Firestore Imports
@@ -511,13 +516,94 @@ const INVENTORY_CATEGORIES = [
   { key: 'elaborado', title: '🍲 Bases & Lotes Elaborados', icon: Layers, match: ['elaborado', 'bases', 'lotes'] },
 ];
 
+// Perfiles del Sistema y Roles
+export const PROFILES = [
+  {
+    id: 'don_marco',
+    name: 'Don Marco',
+    role: 'admin',
+    label: 'Administrador / Dueño',
+    icon: '👑',
+    pin: '1234',
+    badge: 'Control Total',
+    color: 'from-amber-500/20 to-amber-500/5 border-amber-400 text-amber-950'
+  },
+  {
+    id: 'cocina_barra',
+    name: 'Cocina / Barra',
+    role: 'cocina_barra',
+    label: 'Jefe de Barra & Cocina',
+    icon: '👨‍🍳',
+    pin: '0000',
+    badge: 'Producción & Stock',
+    color: 'from-sky-500/20 to-sky-500/5 border-sky-400 text-sky-950'
+  },
+  {
+    id: 'mozo_1',
+    name: 'Mozo / Caja 1',
+    role: 'mozo_caja',
+    label: 'Atención & Cobro Salón',
+    icon: '💼',
+    pin: '0000',
+    badge: 'POS & Cobros',
+    color: 'from-emerald-500/20 to-emerald-500/5 border-emerald-400 text-emerald-950'
+  },
+  {
+    id: 'mozo_2',
+    name: 'Mozo / Caja 2',
+    role: 'mozo_caja',
+    label: 'Atención & Cobro Terraza',
+    icon: '💼',
+    pin: '0000',
+    badge: 'POS & Cobros',
+    color: 'from-purple-500/20 to-purple-500/5 border-purple-400 text-purple-950'
+  },
+];
+
 export default function LanchitaPOS() {
+  // =========================================================================
+  // ESTADO DE AUTENTICACIÓN / SESIÓN (PASO 1 -> PASO 2 -> PASO 3 PIN)
+  // =========================================================================
+  const [authSession, setAuthSession] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lanchita_auth_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Modal Auth Wizard (si authSession es null o si el usuario quiere cambiar de turno)
+  const [authStep, setAuthStep] = useState('area'); // 'area', 'profile', 'pin'
+  const [selectedAuthArea, setSelectedAuthArea] = useState('salon'); // 'salon' | 'terraza'
+  const [selectedAuthProfile, setSelectedAuthProfile] = useState(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [isPinShaking, setIsPinShaking] = useState(false);
+
+  // Modal para desbloqueo de Admin si un mozo/cocina intenta entrar
+  const [showAdminUnlockModal, setShowAdminUnlockModal] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminPinError, setAdminPinError] = useState('');
+
   // =========================================================================
   // ESTADOS PRINCIPALES
   // =========================================================================
   const [activeTab, setActiveTab] = useState('ventas'); // 'ventas', 'inventario', 'produccion', 'resumen', 'historial', 'admin'
-  const [activeArea, setActiveArea] = useState(() => localStorage.getItem('lanchita_area') || 'salon');
-  const [activeUser, setActiveUser] = useState(() => localStorage.getItem('lanchita_user') || 'Don Marco (Dueño)');
+  const [activeArea, setActiveArea] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lanchita_auth_session');
+      if (saved) return JSON.parse(saved).area;
+    } catch {}
+    return localStorage.getItem('lanchita_area') || 'salon';
+  });
+  const [activeUser, setActiveUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lanchita_auth_session');
+      if (saved) return JSON.parse(saved).userName;
+    } catch {}
+    return localStorage.getItem('lanchita_user') || 'Don Marco (Dueño)';
+  });
 
   // Insumos sincronizados
   const [supplies, setSupplies] = useState(() => {
@@ -610,6 +696,119 @@ export default function LanchitaPOS() {
   useEffect(() => {
     localStorage.setItem('lanchita_user', activeUser);
   }, [activeUser]);
+
+  // Sincronizar estado local cuando hay sesión activa
+  useEffect(() => {
+    if (authSession) {
+      if (authSession.area) setActiveArea(authSession.area);
+      if (authSession.userName) setActiveUser(authSession.userName);
+    }
+  }, [authSession]);
+
+  // =========================================================================
+  // GESTIÓN DE AUTENTICACIÓN (PIN KEYPAD & SESIÓN)
+  // =========================================================================
+  const handleSelectArea = (areaKey) => {
+    setSelectedAuthArea(areaKey);
+    setAuthStep('profile');
+  };
+
+  const handleSelectProfile = (profile) => {
+    setSelectedAuthProfile(profile);
+    setPinInput('');
+    setPinError('');
+    setAuthStep('pin');
+  };
+
+  const handleKeypadPress = (val) => {
+    if (pinInput.length >= 4) return;
+    const nextPin = pinInput + val;
+    setPinInput(nextPin);
+    setPinError('');
+
+    // Verificación automática al 4to dígito
+    if (nextPin.length === 4) {
+      verifyPin(nextPin, selectedAuthProfile);
+    }
+  };
+
+  const handleKeypadBackspace = () => {
+    setPinInput((prev) => prev.slice(0, -1));
+    setPinError('');
+  };
+
+  const handleKeypadClear = () => {
+    setPinInput('');
+    setPinError('');
+  };
+
+  const verifyPin = (pin, profile) => {
+    if (!profile) return;
+    const correctPin = profile.pin || '0000';
+
+    if (pin === correctPin) {
+      const sessionData = {
+        userId: profile.id,
+        userName: profile.name,
+        role: profile.role,
+        area: selectedAuthArea,
+        loginAt: new Date().toISOString(),
+      };
+
+      try {
+        localStorage.setItem('lanchita_auth_session', JSON.stringify(sessionData));
+      } catch (err) {
+        console.error('Error guardando sesión:', err);
+      }
+
+      setAuthSession(sessionData);
+      setActiveArea(selectedAuthArea);
+      setActiveUser(profile.name);
+      setPinInput('');
+      setPinError('');
+
+      // Restringir pestaña activa inicial según rol
+      if (profile.role === 'mozo_caja') {
+        setActiveTab('ventas');
+      } else if (profile.role === 'cocina_barra') {
+        setActiveTab('produccion');
+      }
+
+      showToast('success', `¡Bienvenido ${profile.name}! Turno iniciado en ${selectedAuthArea === 'salon' ? 'Salón Comedor' : 'Terraza Karaoke'}`);
+    } else {
+      setIsPinShaking(true);
+      setPinError('PIN incorrecto. Intenta de nuevo.');
+      setTimeout(() => {
+        setIsPinShaking(false);
+        setPinInput('');
+      }, 700);
+    }
+  };
+
+  const handleLogout = () => {
+    if (window.confirm('¿Deseas cerrar el turno y cambiar de operador?')) {
+      localStorage.removeItem('lanchita_auth_session');
+      setAuthSession(null);
+      setAuthStep('area');
+      setSelectedAuthProfile(null);
+      setPinInput('');
+      setPinError('');
+      showToast('info', 'Turno cerrado correctamente.');
+    }
+  };
+
+  // Desbloqueo temporal de Admin (para Don Marco)
+  const handleVerifyAdminPin = () => {
+    if (adminPinInput === '1234') {
+      setShowAdminUnlockModal(false);
+      setAdminPinInput('');
+      setAdminPinError('');
+      setActiveTab('admin');
+      showToast('success', 'Acceso de Administrador autorizado.');
+    } else {
+      setAdminPinError('PIN de Administrador incorrecto (Don Marco: 1234)');
+    }
+  };
 
   // =========================================================================
   // 4. ACTUALIZACIÓN EN VIVO (onSnapshot)
@@ -1240,11 +1439,15 @@ export default function LanchitaPOS() {
   // SUB-COMPONENTES DE RENDER
   // =========================================================================
 
-  // HEADER SUPERIOR
+  // HEADER SUPERIOR CON PILL DE OPERADOR Y SALIR
   const renderHeader = () => {
+    const currentProfile = PROFILES.find((p) => p.name === activeUser || p.id === authSession?.userId);
+    const profileIcon = currentProfile?.icon || '👤';
+
     return (
       <header className="sticky top-0 z-40 bg-[#0F172A] text-white border-b border-slate-800 shadow-md">
         <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center justify-between gap-2">
+          {/* Logo y Estado Online */}
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center shadow-inner">
               <Fish className="w-5 h-5 text-amber-400" />
@@ -1271,47 +1474,62 @@ export default function LanchitaPOS() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="flex bg-slate-900 p-1 rounded-full border border-slate-700 shadow-inner">
+          {/* Selector de Área, Perfil y Botón Salir */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Pill de Área */}
+            <div className="flex bg-slate-900 p-0.5 sm:p-1 rounded-full border border-slate-700 shadow-inner">
               <button
                 type="button"
                 onClick={() => setActiveArea('salon')}
-                className={`px-2.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`px-2 sm:px-2.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
                   activeArea === 'salon'
                     ? 'bg-sky-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
+                title="Piso 1 y 2 - Salón Comedor"
               >
                 <span>🐟</span>
-                <span className="hidden sm:inline">Salón Comedor</span>
-                <span className="sm:hidden">Salón</span>
+                <span className="hidden sm:inline">Salón</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveArea('terraza')}
-                className={`px-2.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                className={`px-2 sm:px-2.5 py-1 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
                   activeArea === 'terraza'
                     ? 'bg-amber-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
+                title="Piso 3 - Terraza Karaoke"
               >
                 <span>🎤</span>
-                <span className="hidden sm:inline">Terraza Karaoke</span>
-                <span className="sm:hidden">Terraza</span>
+                <span className="hidden sm:inline">Terraza</span>
               </button>
             </div>
 
-            <select
-              value={activeUser}
-              onChange={(e) => setActiveUser(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-full px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+            {/* Pill de Perfil Activo */}
+            <div className="flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 text-slate-200 text-xs font-semibold rounded-full px-2.5 py-1 shadow-inner">
+              <span className="text-sm">{profileIcon}</span>
+              <span className="font-bold text-slate-100 max-w-[85px] sm:max-w-[120px] truncate">
+                {activeUser}
+              </span>
+              {authSession?.role === 'admin' && (
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-400/40 px-1 py-0.2 rounded font-extrabold uppercase hidden sm:inline">
+                  Admin
+                </span>
+              )}
+            </div>
+
+            {/* Botón Cerrar Turno / Salir */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="p-1.5 sm:px-2.5 sm:py-1 rounded-full bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-300 border border-slate-700 hover:border-red-500/40 text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-xs"
+              title="Cerrar turno / Cambiar operador"
             >
-              <option value="Don Marco (Dueño)">👤 Don Marco (Dueño)</option>
-              <option value="Caja Salón">💵 Caja Salón</option>
-              <option value="Barra Principal">🍻 Barra Principal</option>
-              <option value="Mozo 1">🏃 Mozo 1</option>
-            </select>
+              <LogOut className="w-3.5 h-3.5 text-red-400" />
+              <span className="hidden md:inline">Salir</span>
+            </button>
           </div>
         </div>
       </header>
@@ -1588,46 +1806,60 @@ export default function LanchitaPOS() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* BOTÓN: CARGAR INVENTARIO INICIAL DE LA LANCHITA */}
-            <button
-              type="button"
-              disabled={isSeeding}
-              onClick={handleSeedInitialData}
-              className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-black px-3 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
-              title="Inyecta los insumos oficiales en Firestore"
-            >
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              <span>{isSeeding ? 'Cargando...' : '🌱 Cargar Inventario Inicial'}</span>
-            </button>
+            {/* BOTÓN: CARGAR INVENTARIO INICIAL DE LA LANCHITA (Solo Admin) */}
+            {authSession?.role === 'admin' && (
+              <button
+                type="button"
+                disabled={isSeeding}
+                onClick={handleSeedInitialData}
+                className="bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-black px-3 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs cursor-pointer"
+                title="Inyecta los insumos oficiales en Firestore"
+              >
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <span>{isSeeding ? 'Cargando...' : '🌱 Cargar Inventario Inicial'}</span>
+              </button>
+            )}
 
-            {/* BOTÓN: INGRESO DE MERCADERÍA */}
-            <button
-              type="button"
-              disabled={supplies.length === 0}
-              onClick={() => {
-                setShowRestockModal({ isGeneral: true });
-                setSelectedRestockId(supplies[0]?.id || '');
-                setRestockAmount('10');
-              }}
-              className={`text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs ${
-                supplies.length === 0
-                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                  : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 cursor-pointer'
-              }`}
-            >
-              <ArrowDownToLine className="w-4 h-4 text-amber-600" />
-              <span>📥 Ingreso</span>
-            </button>
+            {/* BOTÓN: INGRESO DE MERCADERÍA (Admin y Cocina/Barra) */}
+            {authSession?.role !== 'mozo_caja' && (
+              <button
+                type="button"
+                disabled={supplies.length === 0}
+                onClick={() => {
+                  setShowRestockModal({ isGeneral: true });
+                  setSelectedRestockId(supplies[0]?.id || '');
+                  setRestockAmount('10');
+                }}
+                className={`text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 shadow-xs ${
+                  supplies.length === 0
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 cursor-pointer'
+                }`}
+              >
+                <ArrowDownToLine className="w-4 h-4 text-amber-600" />
+                <span>📥 Ingreso</span>
+              </button>
+            )}
 
-            {/* BOTÓN: + NUEVO INSUMO */}
-            <button
-              type="button"
-              onClick={() => setShowNewSupplyModal(true)}
-              className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ Nuevo Insumo</span>
-            </button>
+            {/* BOTÓN: + NUEVO INSUMO (Solo Admin y Cocina/Barra) */}
+            {authSession?.role !== 'mozo_caja' && (
+              <button
+                type="button"
+                onClick={() => setShowNewSupplyModal(true)}
+                className="bg-[#059669] hover:bg-[#047857] text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Nuevo Insumo</span>
+              </button>
+            )}
+
+            {/* Indicador de Solo Lectura para Mozo/Caja */}
+            {authSession?.role === 'mozo_caja' && (
+              <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-xs">
+                <Lock className="w-3.5 h-3.5 text-slate-500" />
+                <span>Modo Consulta (Solo Lectura)</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -1746,66 +1978,75 @@ export default function LanchitaPOS() {
                             <span className="text-[10px] text-slate-400 font-medium">Stock en Vivo</span>
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            {/* Restar rápido */}
-                            <button
-                              type="button"
-                              onClick={() => handleQuickAdjustStock(sup.id, sup.unidad === 'g' ? -100 : -1)}
-                              disabled={sup.stock <= 0}
-                              className={`w-7 h-7 rounded-lg flex items-center justify-center font-black transition active:scale-95 ${
-                                sup.stock <= 0
-                                  ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                                  : 'bg-slate-200 text-slate-700 hover:bg-slate-300 cursor-pointer'
-                              }`}
-                              title={sup.unidad === 'g' ? 'Restar 100g' : 'Restar 1'}
-                            >
-                              <Minus className="w-3.5 h-3.5" />
-                            </button>
+                          {authSession?.role !== 'mozo_caja' ? (
+                            <div className="flex items-center gap-1.5">
+                              {/* Restar rápido */}
+                              <button
+                                type="button"
+                                onClick={() => handleQuickAdjustStock(sup.id, sup.unidad === 'g' ? -100 : -1)}
+                                disabled={sup.stock <= 0}
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center font-black transition active:scale-95 ${
+                                  sup.stock <= 0
+                                    ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300 cursor-pointer'
+                                }`}
+                                title={sup.unidad === 'g' ? 'Restar 100g' : 'Restar 1'}
+                              >
+                                <Minus className="w-3.5 h-3.5" />
+                              </button>
 
-                            {/* Sumar rápido */}
-                            <button
-                              type="button"
-                              onClick={() => handleQuickAdjustStock(sup.id, sup.unidad === 'g' ? 100 : 1)}
-                              className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 flex items-center justify-center font-black transition active:scale-95 cursor-pointer"
-                              title={sup.unidad === 'g' ? 'Sumar 100g' : 'Sumar 1'}
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
+                              {/* Sumar rápido */}
+                              <button
+                                type="button"
+                                onClick={() => handleQuickAdjustStock(sup.id, sup.unidad === 'g' ? 100 : 1)}
+                                className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 flex items-center justify-center font-black transition active:scale-95 cursor-pointer"
+                                title={sup.unidad === 'g' ? 'Sumar 100g' : 'Sumar 1'}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
 
-                            {/* Ingreso modal detallado */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowRestockModal(sup);
-                                setRestockAmount(sup.unidad === 'g' ? '1000' : '10');
-                              }}
-                              className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 active:scale-95 transition cursor-pointer"
-                              title="Ingreso de mercadería detallado"
-                            >
-                              <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
-                              <span className="hidden sm:inline">+ Ingreso</span>
-                            </button>
+                              {/* Ingreso modal detallado */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowRestockModal(sup);
+                                  setRestockAmount(sup.unidad === 'g' ? '1000' : '10');
+                                }}
+                                className="bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 active:scale-95 transition cursor-pointer"
+                                title="Ingreso de mercadería detallado"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="hidden sm:inline">+ Ingreso</span>
+                              </button>
 
-                            {/* Editar */}
-                            <button
-                              type="button"
-                              onClick={() => setEditSupplyModal(sup)}
-                              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition active:scale-95 cursor-pointer"
-                              title="Editar insumo"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                              {/* Editar */}
+                              <button
+                                type="button"
+                                onClick={() => setEditSupplyModal(sup)}
+                                className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                title="Editar insumo"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
 
-                            {/* Eliminar */}
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSupply(sup.id, sup.nombre)}
-                              className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center transition active:scale-95 cursor-pointer"
-                              title="Eliminar insumo"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              {/* Eliminar (Solo Admin) */}
+                              {authSession?.role === 'admin' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSupply(sup.id, sup.nombre)}
+                                  className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center transition active:scale-95 cursor-pointer"
+                                  title="Eliminar insumo"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center text-xs font-bold text-slate-400 gap-1 bg-slate-100 px-2.5 py-1 rounded-lg">
+                              <Lock className="w-3 h-3 text-slate-400" />
+                              <span className="text-[10px]">Solo lectura</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -2751,45 +2992,429 @@ export default function LanchitaPOS() {
     );
   };
 
-  // NAVEGACIÓN INFERIOR FIJA
+  // NAVEGACIÓN INFERIOR FIJA CON PERMISOS POR ROL
   const renderBottomNav = () => {
-    const tabs = [
-      { id: 'ventas', label: 'Ventas', icon: ShoppingBag },
-      { id: 'inventario', label: 'Inventario', icon: Package },
-      { id: 'produccion', label: 'Producción', icon: Flame },
-      { id: 'resumen', label: 'Resumen', icon: BarChart3 },
-      { id: 'historial', label: 'Historial', icon: Calendar },
-      { id: 'admin', label: 'Admin', icon: Settings },
+    // Definición de pestañas
+    const allTabs = [
+      { id: 'ventas', label: 'Ventas', icon: ShoppingBag, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'inventario', label: 'Inventario', icon: Package, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'produccion', label: 'Producción', icon: Flame, roles: ['admin', 'cocina_barra'] },
+      { id: 'resumen', label: 'Resumen', icon: BarChart3, roles: ['admin', 'cocina_barra'] },
+      { id: 'historial', label: 'Historial', icon: Calendar, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'admin', label: 'Admin', icon: Settings, roles: ['admin'] },
     ];
+
+    const handleTabClick = (tab) => {
+      const userRole = authSession?.role || 'admin';
+      const hasPermission = tab.roles.includes(userRole);
+
+      if (hasPermission) {
+        setActiveTab(tab.id);
+      } else {
+        // Si no tiene permiso pero pulsa Admin o Producción, solicita PIN de Don Marco
+        setShowAdminUnlockModal(true);
+        setAdminPinInput('');
+        setAdminPinError('');
+      }
+    };
 
     return (
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A] text-slate-400 border-t border-slate-800 px-1 py-1 shadow-2xl">
         <div className="max-w-md mx-auto grid grid-cols-6 gap-0.5">
-          {tabs.map((tab) => {
+          {allTabs.map((tab) => {
             const IconComponent = tab.icon;
             const isActive = activeTab === tab.id;
+            const userRole = authSession?.role || 'admin';
+            const isRestricted = !tab.roles.includes(userRole);
 
             return (
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabClick(tab)}
                 className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all relative cursor-pointer ${
                   isActive
                     ? 'text-amber-400 font-black'
+                    : isRestricted
+                    ? 'text-slate-600 hover:text-slate-400 opacity-60'
                     : 'text-slate-400 hover:text-slate-200 font-medium'
                 }`}
               >
                 {isActive && (
                   <span className="absolute top-0 w-5 h-0.5 bg-amber-400 rounded-full" />
                 )}
-                <IconComponent className={`w-4 h-4 mb-0.5 ${isActive ? 'scale-110' : ''}`} />
+                <div className="relative">
+                  <IconComponent className={`w-4 h-4 mb-0.5 ${isActive ? 'scale-110' : ''}`} />
+                  {isRestricted && (
+                    <Lock className="w-2.5 h-2.5 text-amber-500 absolute -top-1 -right-2" />
+                  )}
+                </div>
                 <span className="text-[9px] tracking-tight">{tab.label}</span>
               </button>
             );
           })}
         </div>
       </nav>
+    );
+  };
+
+  // =========================================================================
+  // MODAL DE AUTENTICACIÓN Y SELECCIÓN DE AMBIENTE / PERFIL (3 PASOS)
+  // =========================================================================
+  const renderAuthModal = () => {
+    // Si ya existe sesión activa, no mostrar
+    if (authSession) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B192C]/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+          {/* Cabecera del Modal */}
+          <div className="p-5 bg-[#0F172A] text-white text-center relative border-b border-slate-800">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 border border-amber-400 flex items-center justify-center mb-2 shadow-inner">
+              <Fish className="w-7 h-7 text-amber-400" />
+            </div>
+            <h2 className="text-lg font-black tracking-tight text-white">
+              Cevichería "La Lanchita"
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Sistema Operativo POS, Almacén & Barra
+            </p>
+
+            {/* Indicador de Pasos */}
+            <div className="flex justify-center items-center gap-1.5 mt-3">
+              <div
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  authStep === 'area'
+                    ? 'w-7 bg-amber-400'
+                    : 'w-2 bg-slate-600'
+                }`}
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  authStep === 'profile'
+                    ? 'w-7 bg-amber-400'
+                    : 'w-2 bg-slate-600'
+                }`}
+              />
+              <div
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  authStep === 'pin'
+                    ? 'w-7 bg-amber-400'
+                    : 'w-2 bg-slate-600'
+                }`}
+              />
+            </div>
+          </div>
+
+          <div className="p-5 bg-slate-50 flex-1">
+            {/* PASO 1: SELECCIÓN DE AMBIENTE */}
+            {authStep === 'area' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-right duration-200">
+                <div className="text-center">
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                    Paso 1: ¿En qué área estás hoy?
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Selecciona el ambiente de servicio a operar
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  {/* Tarjeta A: Salón Comedor */}
+                  <button
+                    type="button"
+                    onClick={() => handleSelectArea('salon')}
+                    className="p-4 rounded-2xl border-2 border-sky-300 bg-gradient-to-r from-sky-50 to-white hover:border-sky-500 hover:shadow-md transition text-left flex items-center gap-4 cursor-pointer group active:scale-98"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-sky-600 text-white flex items-center justify-center text-3xl shadow-sm group-hover:scale-105 transition">
+                      🐟
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-slate-900 text-base">
+                          Salón Comedor
+                        </span>
+                        <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-2 py-0.5 rounded-full border border-sky-200">
+                          Piso 1 y 2
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Servicio Marino, Ceviches, Chicharrones y almuerzos familiares
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Tarjeta B: Terraza Karaoke */}
+                  <button
+                    type="button"
+                    onClick={() => handleSelectArea('terraza')}
+                    className="p-4 rounded-2xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-white hover:border-amber-500 hover:shadow-md transition text-left flex items-center gap-4 cursor-pointer group active:scale-98"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-amber-600 text-white flex items-center justify-center text-3xl shadow-sm group-hover:scale-105 transition">
+                      🎤
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-slate-900 text-base">
+                          Terraza Karaoke
+                        </span>
+                        <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                          Piso 3 • Noche
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Barra Marina, Pisco Sour, Cervezas heladas y piqueos nocturnos
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 2: SELECCIÓN DE PERFIL */}
+            {authStep === 'profile' && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-right duration-200">
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-200/70 px-2.5 py-1 rounded-full mb-1">
+                    <span>{selectedAuthArea === 'salon' ? '🐟 Salón Comedor' : '🎤 Terraza Karaoke'}</span>
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                    Paso 2: ¿Quién eres?
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Selecciona tu perfil de trabajo para el turno
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {PROFILES.map((profile) => (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      onClick={() => handleSelectProfile(profile)}
+                      className={`p-3 rounded-2xl border-2 bg-gradient-to-b ${profile.color} hover:shadow-md transition text-left flex flex-col justify-between cursor-pointer group active:scale-95`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl group-hover:scale-110 transition">{profile.icon}</span>
+                        <span className="text-[9px] bg-white/80 font-bold px-1.5 py-0.5 rounded-md text-slate-800 border border-slate-200">
+                          {profile.badge}
+                        </span>
+                      </div>
+                      <div className="mt-2">
+                        <div className="font-extrabold text-slate-900 text-xs">
+                          {profile.name}
+                        </div>
+                        <div className="text-[10px] text-slate-600 truncate mt-0.5">
+                          {profile.label}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAuthStep('area')}
+                    className="w-full py-2.5 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>← Cambiar área de servicio</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PASO 3: INGRESO DE PIN / CONTRASEÑA */}
+            {authStep === 'pin' && selectedAuthProfile && (
+              <div className="space-y-4 animate-in fade-in slide-in-from-right duration-200">
+                <div className="text-center">
+                  <div className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-xs mb-1">
+                    <span>{selectedAuthProfile.icon}</span>
+                    <span>{selectedAuthProfile.name}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-amber-700 font-black">
+                      {selectedAuthArea === 'salon' ? 'Salón' : 'Terraza'}
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mt-1">
+                    Paso 3: Ingresa tu PIN de Seguridad
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {selectedAuthProfile.role === 'admin'
+                      ? 'Código de Don Marco (PIN por defecto: 1234)'
+                      : 'Código de Operador (PIN por defecto: 0000)'}
+                  </p>
+                </div>
+
+                {/* Indicador de 4 Dígitos */}
+                <div className="flex justify-center items-center gap-3 py-1">
+                  {[0, 1, 2, 3].map((idx) => {
+                    const isFilled = pinInput.length > idx;
+                    return (
+                      <div
+                        key={idx}
+                        className={`w-4 h-4 rounded-full transition-all duration-150 ${
+                          isPinShaking ? 'animate-bounce' : ''
+                        } ${
+                          isFilled
+                            ? 'bg-[#0F172A] scale-125 shadow-sm ring-2 ring-amber-400'
+                            : 'border-2 border-slate-300 bg-white'
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Mensaje de Error */}
+                {pinError && (
+                  <div className="text-center text-xs font-bold text-red-600 bg-red-50 border border-red-200 py-1.5 px-3 rounded-xl animate-in fade-in flex items-center justify-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-red-600 flex-shrink-0" />
+                    <span>{pinError}</span>
+                  </div>
+                )}
+
+                {/* Teclado Numérico Táctil */}
+                <div className="grid grid-cols-3 gap-2 max-w-[260px] mx-auto pt-1">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => handleKeypadPress(num.toString())}
+                      className="h-12 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-300 rounded-2xl font-black text-lg text-slate-900 shadow-xs transition active:scale-95 cursor-pointer flex items-center justify-center"
+                    >
+                      {num}
+                    </button>
+                  ))}
+
+                  {/* Tecla C (Limpiar) */}
+                  <button
+                    type="button"
+                    onClick={handleKeypadClear}
+                    className="h-12 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 border border-slate-300 rounded-2xl font-bold text-xs text-slate-700 shadow-xs transition active:scale-95 cursor-pointer flex items-center justify-center"
+                    title="Limpiar"
+                  >
+                    C
+                  </button>
+
+                  {/* Tecla 0 */}
+                  <button
+                    type="button"
+                    onClick={() => handleKeypadPress('0')}
+                    className="h-12 bg-white hover:bg-slate-100 active:bg-slate-200 border border-slate-300 rounded-2xl font-black text-lg text-slate-900 shadow-xs transition active:scale-95 cursor-pointer flex items-center justify-center"
+                  >
+                    0
+                  </button>
+
+                  {/* Tecla Retroceso */}
+                  <button
+                    type="button"
+                    onClick={handleKeypadBackspace}
+                    className="h-12 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 border border-slate-300 rounded-2xl font-bold text-sm text-slate-700 shadow-xs transition active:scale-95 cursor-pointer flex items-center justify-center"
+                    title="Borrar dígito"
+                  >
+                    ⌫
+                  </button>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPinInput('');
+                      setPinError('');
+                      setAuthStep('profile');
+                    }}
+                    className="w-full py-2.5 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>← Cambiar de operador</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // MODAL DE DESBLOQUEO DE ADMIN (CUANDO UN MOZO/COCINA INTENTA ENTRAR A ADMIN)
+  const renderAdminUnlockModal = () => {
+    if (!showAdminUnlockModal) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl max-w-xs w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+          <div className="p-4 bg-[#0F172A] text-white flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-400" />
+              <h3 className="font-extrabold text-sm">Acceso Restringido</h3>
+            </div>
+            <button
+              onClick={() => {
+                setShowAdminUnlockModal(false);
+                setAdminPinInput('');
+                setAdminPinError('');
+              }}
+              className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-3 bg-slate-50 text-center">
+            <div className="w-10 h-10 mx-auto rounded-full bg-amber-100 text-amber-700 flex items-center justify-center">
+              <KeyRound className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <div className="text-xs font-black text-slate-900">
+                PIN de Dueño / Administrador
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Esta sección requiere autorización de Don Marco (PIN: 1234)
+              </p>
+            </div>
+
+            <input
+              type="password"
+              maxLength={4}
+              value={adminPinInput}
+              onChange={(e) => {
+                setAdminPinInput(e.target.value);
+                setAdminPinError('');
+              }}
+              placeholder="••••"
+              className="w-36 mx-auto text-center font-mono font-black text-2xl tracking-widest bg-white border border-slate-300 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+            />
+
+            {adminPinError && (
+              <p className="text-[11px] font-bold text-red-600">{adminPinError}</p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminUnlockModal(false);
+                  setAdminPinInput('');
+                  setAdminPinError('');
+                }}
+                className="flex-1 py-2.5 bg-slate-200 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-300 transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleVerifyAdminPin}
+                className="flex-1 py-2.5 bg-[#0F172A] text-amber-400 rounded-xl text-xs font-black hover:bg-slate-800 transition cursor-pointer shadow-md"
+              >
+                Desbloquear
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -2807,7 +3432,9 @@ export default function LanchitaPOS() {
         {activeTab === 'admin' && renderAdminTab()}
       </main>
 
-      {/* Modales */}
+      {/* Modales Principales */}
+      {renderAuthModal()}
+      {renderAdminUnlockModal()}
       {renderPayModal()}
       {renderNewSupplyModal()}
       {renderEditSupplyModal()}
@@ -2817,3 +3444,4 @@ export default function LanchitaPOS() {
     </div>
   );
 }
+

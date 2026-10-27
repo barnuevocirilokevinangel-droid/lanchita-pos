@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShoppingBag,
   Package,
@@ -37,6 +37,10 @@ import {
   PackageOpen,
   ArrowDownToLine,
   Edit3,
+  LayoutGrid,
+  Wallet,
+  ClipboardList,
+  Clock,
   Lock,
   LogOut,
   ArrowLeft,
@@ -55,6 +59,8 @@ import {
   query,
   orderBy,
   addDoc,
+  setDoc,
+  limit,
   updateDoc,
   deleteDoc
 } from 'firebase/firestore';
@@ -516,6 +522,81 @@ const INVENTORY_CATEGORIES = [
   { key: 'elaborado', title: '🍲 Bases & Lotes Elaborados', icon: Layers, match: ['elaborado', 'bases', 'lotes'] },
 ];
 
+// =========================================================================
+// HELPERS: MESAS, CUENTAS, PAGOS, CAJA
+// =========================================================================
+const TABLES = [
+  ...['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => ({ name: `Mesa ${n}`, emoji: '🐟' })),
+  ...['01', '02', '03', '04'].map((n) => ({ name: `Terraza ${n}`, emoji: '🎤' })),
+  { name: 'Barra 01', emoji: '🍻' },
+  { name: 'Barra 02', emoji: '🍻' },
+  { name: 'Para Llevar', emoji: '🥡' },
+];
+
+const ENCARGADO_PIN = '1234'; // PIN de Don Marco / encargado para modificar stock
+const STOCK_UNLOCK_MS = 5 * 60 * 1000;
+
+const PAY_METHODS = [
+  { key: 'efectivo', label: 'Efectivo', icon: Banknote, color: 'text-emerald-600', active: 'border-[#059669] bg-emerald-50 text-emerald-950' },
+  { key: 'yape', label: 'Yape/Plin', icon: QrCode, color: 'text-purple-600', active: 'border-purple-600 bg-purple-50 text-purple-950' },
+  { key: 'tarjeta', label: 'Tarjeta', icon: CreditCard, color: 'text-sky-600', active: 'border-sky-600 bg-sky-50 text-sky-950' },
+];
+
+const slugify = (s) =>
+  String(s)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+const mesaOf = (name) => String(name).split(' - ')[0];
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const normMethod = (m) => (m === 'yape' || m === 'yape_plin' ? 'yape' : m);
+
+const cartTotal = (cart) =>
+  Object.entries(cart || {}).reduce((acc, [id, qty]) => {
+    const p = INITIAL_PRODUCTS.find((x) => x.id === id);
+    return p && qty > 0 ? acc + p.price * qty : acc;
+  }, 0);
+const cartCount = (cart) =>
+  Object.values(cart || {}).reduce((acc, qty) => acc + (qty > 0 ? qty : 0), 0);
+const cartKey = (cart) =>
+  Object.entries(cart || {})
+    .filter(([, q]) => q > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([id, q]) => `${id}:${q}`)
+    .join('|');
+const splitKey = (split) =>
+  split ? `${split.n}/` + (split.pagos || []).map((p) => `${p.idx}:${p.monto}:${p.metodo}`).join('|') : '';
+
+const tsToMs = (data) => {
+  if (data.fecha && typeof data.fecha.toDate === 'function') return data.fecha.toDate().getTime();
+  if (data.timestamp) return typeof data.timestamp === 'number' ? data.timestamp : Date.parse(data.timestamp);
+  return null;
+};
+const saleMs = (s) => s.tsMs || (s.timestamp ? Date.parse(s.timestamp) : null);
+const isToday = (ms) => {
+  if (!ms) return true;
+  return new Date(ms).toDateString() === new Date().toDateString();
+};
+const salePayments = (s) =>
+  Array.isArray(s.pagos) && s.pagos.length
+    ? s.pagos.map((p) => ({ metodo: normMethod(p.metodo), monto: Number(p.monto) || 0 }))
+    : [{ metodo: normMethod(s.metodoPago), monto: Number(s.total) || 0 }];
+const formatElapsed = (ms) => {
+  const m = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+};
+const loadLocal = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 // Perfiles del Sistema y Roles
 export const PROFILES = [
   {
@@ -663,7 +744,35 @@ export default function LanchitaPOS() {
 
   // Comanda actual
   const [orderCart, setOrderCart] = useState({});
-  const [selectedTable, setSelectedTable] = useState('Mesa 01');
+  const [selectedTable, setSelectedTable] = useState(() => localStorage.getItem('lanchita_table') || 'Mesa 01');
+
+  // Cuentas activas (multimesa) y cobro dividido
+  const [accounts, setAccounts] = useState(() => loadLocal('lanchita_accounts', []));
+  const [showTablesModal, setShowTablesModal] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
+  const accountsRef = useRef([]);
+  const hydratedRef = useRef(false);
+  const [payTab, setPayTab] = useState('unico'); // 'unico' | 'dividir'
+  const [splitN, setSplitN] = useState(2);
+  const [splitPayments, setSplitPayments] = useState([]);
+  const [splitMethods, setSplitMethods] = useState({});
+
+  // Kardex y control de acceso a stock
+  const [movements, setMovements] = useState(() => loadLocal('lanchita_movements', []));
+  const [showKardexModal, setShowKardexModal] = useState(false);
+  const [kardexFilter, setKardexFilter] = useState('TODOS');
+  const [movementType, setMovementType] = useState('INGRESO');
+  const [stockUnlockUntil, setStockUnlockUntil] = useState(0);
+  const [showStockPinModal, setShowStockPinModal] = useState(false);
+  const [stockPinInput, setStockPinInput] = useState('');
+  const [stockPinError, setStockPinError] = useState('');
+  const pendingStockActionRef = useRef(null);
+
+  // Flujo de caja
+  const [cajaEntries, setCajaEntries] = useState(() => loadLocal('lanchita_caja', []));
+  const [showCajaModal, setShowCajaModal] = useState(false);
+  const [cajaForm, setCajaForm] = useState({ motivo: '', monto: '', responsable: '' });
+  const [pendingTab, setPendingTab] = useState(null);
 
   // Modales POS
   const [showPayModal, setShowPayModal] = useState(false);
@@ -803,7 +912,8 @@ export default function LanchitaPOS() {
       setShowAdminUnlockModal(false);
       setAdminPinInput('');
       setAdminPinError('');
-      setActiveTab('admin');
+      setActiveTab(pendingTab || 'admin');
+      setPendingTab(null);
       showToast('success', 'Acceso de Administrador autorizado.');
     } else {
       setAdminPinError('PIN de Administrador incorrecto (Don Marco: 1234)');
@@ -885,6 +995,7 @@ export default function LanchitaPOS() {
               ...data,
               dateStr: formattedTime,
               fullDateStr: formattedDate,
+              tsMs: tsToMs(data),
             };
           });
 
@@ -905,6 +1016,219 @@ export default function LanchitaPOS() {
   // =========================================================================
   // BLOQUEO INTELIGENTE DE INSUMOS
   // =========================================================================
+  // =========================================================================
+  // CUENTAS ACTIVAS (MULTIMESA) SINCRONIZADAS CON FIRESTORE
+  // =========================================================================
+  accountsRef.current = accounts;
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_accounts', JSON.stringify(accounts));
+  }, [accounts]);
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_table', selectedTable);
+  }, [selectedTable]);
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_movements', JSON.stringify(movements.slice(0, 300)));
+  }, [movements]);
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_caja', JSON.stringify(cajaEntries.slice(0, 500)));
+  }, [cajaEntries]);
+
+  // Reloj para el "tiempo abierta" de cada mesa
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const loadAccountIntoWorkspace = (acc) => {
+    setOrderCart(acc?.cart || {});
+    setSplitPayments(acc?.split?.pagos || []);
+    setSplitN(acc?.split?.n || 2);
+    setSplitMethods({});
+    setPayTab('unico');
+  };
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      if (!hydratedRef.current) {
+        hydratedRef.current = true;
+        loadAccountIntoWorkspace(accountsRef.current.find((a) => a.id === slugify(selectedTable)));
+      }
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'cuentas_activas'),
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            ...data,
+            updatedAt: data.updatedAt && data.updatedAt.toMillis ? data.updatedAt.toMillis() : Date.now(),
+          };
+        });
+        accountsRef.current = list;
+        setAccounts(list);
+
+        if (!hydratedRef.current) {
+          hydratedRef.current = true;
+          loadAccountIntoWorkspace(list.find((a) => a.id === slugify(selectedTable)));
+        }
+      },
+      (error) => {
+        console.warn('Error en listener de cuentas activas:', error);
+        hydratedRef.current = true;
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Kardex en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    const q = query(collection(db, 'movimientos_inventario'), orderBy('fecha', 'desc'), limit(300));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setMovements(
+          snapshot.docs.map((d) => {
+            const data = d.data();
+            return { id: d.id, ...data, fecha: null, tsMs: tsToMs(data) };
+          })
+        );
+      },
+      (error) => console.warn('Error en listener de Kardex:', error)
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Caja chica en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    const q = query(collection(db, 'caja_chica'), orderBy('fecha', 'desc'), limit(500));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        setCajaEntries(
+          snapshot.docs.map((d) => {
+            const data = d.data();
+            return { id: d.id, ...data, fecha: null, tsMs: tsToMs(data) };
+          })
+        );
+      },
+      (error) => console.warn('Error en listener de caja chica:', error)
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const currentSplit = () =>
+    splitPayments.length > 0 ? { n: splitN, pagos: splitPayments } : null;
+
+  // Guarda (o elimina si está vacía) la cuenta de una mesa
+  const persistAccount = async (name, cart, split) => {
+    const id = slugify(name);
+    const existing = accountsRef.current.find((a) => a.id === id);
+    const total = cartTotal(cart);
+    const itemsCount = cartCount(cart);
+
+    if (itemsCount === 0) {
+      if (existing) {
+        try {
+          if (isFirebaseConfigured) await deleteDoc(doc(db, 'cuentas_activas', id));
+          else setAccounts((prev) => prev.filter((a) => a.id !== id));
+        } catch (err) {
+          console.warn('No se pudo liberar la cuenta:', err);
+        }
+      }
+      return;
+    }
+
+    if (existing && cartKey(existing.cart) === cartKey(cart) && splitKey(existing.split) === splitKey(split)) {
+      return;
+    }
+
+    const payload = {
+      nombre: name,
+      mesa: mesaOf(name),
+      cart,
+      total,
+      itemsCount,
+      openedAt: existing?.openedAt || Date.now(),
+      area: existing?.area || activeArea,
+      responsable: existing?.responsable || activeUser,
+      split: split || null,
+    };
+
+    try {
+      if (isFirebaseConfigured) {
+        await setDoc(doc(db, 'cuentas_activas', id), { ...payload, updatedAt: serverTimestamp() });
+      } else {
+        setAccounts((prev) => [...prev.filter((a) => a.id !== id), { id, ...payload, updatedAt: Date.now() }]);
+      }
+    } catch (err) {
+      console.warn('No se pudo guardar la cuenta:', err);
+    }
+  };
+
+  // Autoguardado de la cuenta activa (debounce)
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const t = setTimeout(() => {
+      persistAccount(selectedTable, orderCart, currentSplit());
+    }, 500);
+    return () => clearTimeout(t);
+  }, [orderCart, selectedTable, splitPayments, splitN]);
+
+  // Cambiar de mesa: la cuenta anterior se guarda al instante
+  const handleSwitchTable = (name) => {
+    if (name !== selectedTable) {
+      persistAccount(selectedTable, orderCart, currentSplit());
+      const acc = accountsRef.current.find((a) => a.id === slugify(name));
+      setSelectedTable(name);
+      loadAccountIntoWorkspace(acc);
+    }
+    setShowTablesModal(false);
+  };
+
+  // Insignias de cuentas abiertas (incluye la activa con su total en vivo)
+  const getAccountBadges = () => {
+    const map = new Map();
+    accounts.forEach((a) => {
+      map.set(a.nombre, {
+        name: a.nombre,
+        total: Number(a.total) || 0,
+        count: Number(a.itemsCount) || 0,
+        openedAt: a.openedAt || a.updatedAt || nowTick,
+        split: !!(a.split && a.split.pagos && a.split.pagos.length),
+      });
+    });
+    const live = map.get(selectedTable);
+    map.set(selectedTable, {
+      name: selectedTable,
+      total: totalOrderAmount,
+      count: totalOrderCount,
+      openedAt: live?.openedAt || nowTick,
+      split: splitPayments.length > 0,
+    });
+    return [...map.values()]
+      .filter((b) => b.name === selectedTable || b.count > 0)
+      .sort((a, b) => a.openedAt - b.openedAt);
+  };
+
+  const handleNewSubaccount = (tableName) => {
+    const prefix = `${tableName} - Cuenta `;
+    const nums = getAccountBadges()
+      .filter((b) => b.name.startsWith(prefix))
+      .map((b) => Number(b.name.slice(prefix.length)) || 0);
+    const next = (nums.length ? Math.max(...nums) : 0) + 1;
+    handleSwitchTable(`${prefix}${next}`);
+  };
+
   const checkProductAvailability = (product) => {
     const committedSupplies = {};
     Object.entries(orderCart).forEach(([prodId, qty]) => {
@@ -939,6 +1263,10 @@ export default function LanchitaPOS() {
   };
 
   const handleAddProduct = (product) => {
+    if (splitPayments.length > 0) {
+      showToast('error', 'La cuenta tiene pagos parciales. Anúlalos desde el cobro para modificar el pedido.');
+      return;
+    }
     const availability = checkProductAvailability(product);
     if (!availability.canAdd) {
       showToast(
@@ -954,6 +1282,10 @@ export default function LanchitaPOS() {
   };
 
   const handleRemoveProduct = (productId) => {
+    if (splitPayments.length > 0) {
+      showToast('error', 'La cuenta tiene pagos parciales. Anúlalos desde el cobro para modificar el pedido.');
+      return;
+    }
     setOrderCart((prev) => {
       const current = prev[productId] || 0;
       if (current <= 1) {
@@ -990,12 +1322,15 @@ export default function LanchitaPOS() {
   // =========================================================================
   // 3. DESCUENTO ATÓMICO EN FIRESTORE AL COBRAR (writeBatch)
   // =========================================================================
-  const handleConfirmSale = async () => {
+  const finalizeSale = async (pagos) => {
     if (orderItems.length === 0) return;
     setIsProcessingSale(true);
 
-    const numCash = Number(cashGiven) || totalOrderAmount;
-    const change = paymentMethod === 'efectivo' && numCash >= totalOrderAmount ? numCash - totalOrderAmount : 0;
+    const toStoredMethod = (m) => (m === 'yape' ? 'yape_plin' : m);
+    const metodos = [...new Set(pagos.map((p) => toStoredMethod(p.metodo)))];
+    const metodoPago = metodos.length === 1 ? metodos[0] : 'mixto';
+    const singleCash = pagos.length === 1 && pagos[0].metodo === 'efectivo' ? pagos[0] : null;
+    const accId = slugify(selectedTable);
 
     const newSaleData = {
       fecha: serverTimestamp(),
@@ -1013,9 +1348,15 @@ export default function LanchitaPOS() {
         ingredientes: it.ingredients || [],
       })),
       total: totalOrderAmount,
-      metodoPago: paymentMethod === 'yape' ? 'yape_plin' : paymentMethod,
-      montoRecibido: paymentMethod === 'efectivo' ? numCash : null,
-      vuelto: paymentMethod === 'efectivo' ? change : 0,
+      metodoPago,
+      pagos: pagos.map((p) => ({
+        persona: p.persona ?? null,
+        monto: round2(p.monto),
+        metodo: toStoredMethod(p.metodo),
+      })),
+      dividida: pagos.length > 1,
+      montoRecibido: singleCash ? singleCash.montoRecibido ?? null : null,
+      vuelto: singleCash ? singleCash.vuelto || 0 : 0,
     };
 
     try {
@@ -1046,7 +1387,9 @@ export default function LanchitaPOS() {
           });
         });
 
-        // 4. Ejecutar el commit del lote
+        // 4. Cerrar la cuenta activa de la mesa en el mismo lote atómico
+        batch.delete(doc(db, 'cuentas_activas', accId));
+
         await batch.commit();
 
         setReceiptModal({
@@ -1063,6 +1406,7 @@ export default function LanchitaPOS() {
         const localSale = {
           id: localId,
           ...newSaleData,
+          fecha: null,
           dateStr: new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
           fullDateStr: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }),
         };
@@ -1079,21 +1423,89 @@ export default function LanchitaPOS() {
           })
         );
 
+        setAccounts((prev) => prev.filter((a) => a.id !== accId));
         setSalesHistory((prev) => [localSale, ...prev]);
         setReceiptModal(localSale);
         showToast('success', 'Venta registrada y stock de insumos actualizado (Modo Local).');
       }
 
-      // 5. Limpiar comanda de la mesa seleccionada
+      // 5. Limpiar comanda y pagos parciales de la mesa seleccionada
       setOrderCart({});
       setShowPayModal(false);
       setCashGiven('');
+      setSplitPayments([]);
+      setSplitN(2);
+      setSplitMethods({});
+      setPayTab('unico');
     } catch (error) {
       console.error('Error al registrar venta:', error);
       showToast('error', `Error al registrar en Firestore: ${error.message || 'Error de red'}`);
     } finally {
       setIsProcessingSale(false);
     }
+  };
+
+  // Cobro en un solo pago
+  const handleConfirmSale = () => {
+    const numCash = Number(cashGiven) || totalOrderAmount;
+    const change = paymentMethod === 'efectivo' && numCash >= totalOrderAmount ? numCash - totalOrderAmount : 0;
+    return finalizeSale([
+      {
+        persona: null,
+        monto: totalOrderAmount,
+        metodo: paymentMethod,
+        montoRecibido: paymentMethod === 'efectivo' ? numCash : null,
+        vuelto: paymentMethod === 'efectivo' ? change : 0,
+      },
+    ]);
+  };
+
+  // =========================================================================
+  // DIVISIÓN DE CUENTA (SPLIT BILL) EN PARTES IGUALES
+  // =========================================================================
+  const splitShares = useMemo(() => {
+    const n = Math.max(2, splitN);
+    const base = Math.floor((totalOrderAmount / n) * 100) / 100;
+    const shares = Array(n).fill(base);
+    shares[n - 1] = round2(totalOrderAmount - base * (n - 1));
+    return shares;
+  }, [totalOrderAmount, splitN]);
+
+  const splitPaidAmount = round2(splitPayments.reduce((acc, p) => acc + p.monto, 0));
+  const splitIsComplete = totalOrderAmount > 0 && splitPaidAmount >= round2(totalOrderAmount) - 0.004;
+
+  const handlePaySplitShare = async (idx) => {
+    if (splitPayments.some((p) => p.idx === idx)) return;
+    const metodo = splitMethods[idx] || 'efectivo';
+    const next = [
+      ...splitPayments,
+      {
+        idx,
+        persona: idx + 1,
+        monto: splitShares[idx],
+        metodo: metodo === 'yape' ? 'yape_plin' : metodo,
+        ts: Date.now(),
+        cobrador: activeUser,
+      },
+    ];
+    setSplitPayments(next);
+
+    const paid = round2(next.reduce((acc, p) => acc + p.monto, 0));
+    if (paid >= round2(totalOrderAmount) - 0.004) {
+      await finalizeSale(next.map((p) => ({ persona: p.persona, monto: p.monto, metodo: p.metodo })));
+    } else {
+      showToast('success', `Persona ${idx + 1}: S/ ${splitShares[idx].toFixed(2)} cobrado. Faltan S/ ${(totalOrderAmount - paid).toFixed(2)}.`);
+    }
+  };
+
+  const handleFinalizeSplit = () =>
+    finalizeSale(splitPayments.map((p) => ({ persona: p.persona, monto: p.monto, metodo: p.metodo })));
+
+  const handleResetSplit = () => {
+    if (!window.confirm('¿Anular los pagos parciales registrados de esta cuenta?')) return;
+    setSplitPayments([]);
+    setSplitMethods({});
+    showToast('info', 'Pagos parciales anulados.');
   };
 
   // =========================================================================
@@ -1147,82 +1559,108 @@ export default function LanchitaPOS() {
   // =========================================================================
   // GESTIÓN MANUAL DE INSUMOS (CREAR, EDITAR, ELIMINAR, RESTOCK)
   // =========================================================================
-  const handleCreateNewSupply = async (e) => {
+  const handleCreateNewSupply = (e) => {
     e.preventDefault();
     if (!newSupplyForm.nombre.trim()) return;
 
-    setIsCreatingSupply(true);
+    ensureStockAuth(async () => {
+      setIsCreatingSupply(true);
 
-    try {
-      const newSupplyData = {
-        nombre: newSupplyForm.nombre.trim(),
-        categoria: newSupplyForm.categoria,
-        unidad: newSupplyForm.unidad,
-        stock: Number(newSupplyForm.stock) || 0,
-        alertaMinima: Number(newSupplyForm.alertaMinima) || 0,
-      };
-
-      if (isFirebaseConfigured) {
-        const docRef = await addDoc(collection(db, 'insumos'), newSupplyData);
-        showToast('success', `¡Insumo "${newSupplyData.nombre}" creado en Firestore!`);
-      } else {
-        const localSupply = {
-          id: `insumo_custom_${Date.now()}`,
-          ...newSupplyData,
+      try {
+        const newSupplyData = {
+          nombre: newSupplyForm.nombre.trim(),
+          categoria: newSupplyForm.categoria,
+          unidad: newSupplyForm.unidad,
+          stock: Number(newSupplyForm.stock) || 0,
+          alertaMinima: Number(newSupplyForm.alertaMinima) || 0,
         };
-        setSupplies((prev) => [localSupply, ...prev]);
-        showToast('info', `Insumo "${newSupplyData.nombre}" guardado localmente.`);
-      }
 
-      setNewSupplyForm({
-        nombre: '',
-        categoria: 'Cocina Marina',
-        unidad: 'kg',
-        stock: '',
-        alertaMinima: '',
-      });
-      setShowNewSupplyModal(false);
-    } catch (err) {
-      console.error('Error creando insumo:', err);
-      showToast('error', `Error al crear insumo: ${err.message}`);
-    } finally {
-      setIsCreatingSupply(false);
-    }
+        if (isFirebaseConfigured) {
+          const docRef = await addDoc(collection(db, 'insumos'), newSupplyData);
+          if (newSupplyData.stock > 0) {
+            await addDoc(
+              collection(db, 'movimientos_inventario'),
+              buildMovement({ id: docRef.id, ...newSupplyData }, 'INGRESO', newSupplyData.stock, 0, newSupplyData.stock)
+            );
+          }
+          showToast('success', `¡Insumo "${newSupplyData.nombre}" creado en Firestore!`);
+        } else {
+          const localSupply = {
+            id: `insumo_custom_${Date.now()}`,
+            ...newSupplyData,
+          };
+          setSupplies((prev) => [localSupply, ...prev]);
+          if (localSupply.stock > 0) {
+            pushLocalMovement(buildMovement(localSupply, 'INGRESO', localSupply.stock, 0, localSupply.stock));
+          }
+          showToast('info', `Insumo "${newSupplyData.nombre}" guardado localmente.`);
+        }
+
+        setNewSupplyForm({
+          nombre: '',
+          categoria: 'Cocina Marina',
+          unidad: 'kg',
+          stock: '',
+          alertaMinima: '',
+        });
+        setShowNewSupplyModal(false);
+      } catch (err) {
+        console.error('Error creando insumo:', err);
+        showToast('error', `Error al crear insumo: ${err.message}`);
+      } finally {
+        setIsCreatingSupply(false);
+      }
+    });
   };
 
-  const handleEditSupplySubmit = async (e) => {
+  const handleEditSupplySubmit = (e) => {
     e.preventDefault();
     if (!editSupplyModal) return;
 
-    setIsEditingSupply(true);
+    ensureStockAuth(async () => {
+      setIsEditingSupply(true);
 
-    try {
-      const updatedData = {
-        nombre: editSupplyModal.nombre.trim(),
-        categoria: editSupplyModal.categoria,
-        unidad: editSupplyModal.unidad,
-        stock: Number(editSupplyModal.stock) || 0,
-        alertaMinima: Number(editSupplyModal.alertaMinima) || 0,
-      };
+      try {
+        const updatedData = {
+          nombre: editSupplyModal.nombre.trim(),
+          categoria: editSupplyModal.categoria,
+          unidad: editSupplyModal.unidad,
+          stock: Number(editSupplyModal.stock) || 0,
+          alertaMinima: Number(editSupplyModal.alertaMinima) || 0,
+        };
 
-      if (isFirebaseConfigured) {
-        const supRef = doc(db, 'insumos', editSupplyModal.id);
-        await updateDoc(supRef, updatedData);
-        showToast('success', `Insumo "${updatedData.nombre}" actualizado en Firestore.`);
-      } else {
-        setSupplies((prev) =>
-          prev.map((s) => (s.id === editSupplyModal.id ? { ...s, ...updatedData } : s))
-        );
-        showToast('info', 'Insumo actualizado localmente.');
+        const prevSupply = supplies.find((s) => s.id === editSupplyModal.id);
+        const prevStock = Number(prevSupply?.stock) || 0;
+        const diff = round2(updatedData.stock - prevStock);
+        const movSup = { id: editSupplyModal.id, ...updatedData };
+
+        if (isFirebaseConfigured) {
+          const batch = writeBatch(db);
+          batch.update(doc(db, 'insumos', editSupplyModal.id), updatedData);
+          if (diff !== 0) {
+            batch.set(
+              doc(collection(db, 'movimientos_inventario')),
+              buildMovement(movSup, 'AJUSTE', diff, prevStock, updatedData.stock)
+            );
+          }
+          await batch.commit();
+          showToast('success', `Insumo "${updatedData.nombre}" actualizado en Firestore.`);
+        } else {
+          setSupplies((prev) =>
+            prev.map((s) => (s.id === editSupplyModal.id ? { ...s, ...updatedData } : s))
+          );
+          if (diff !== 0) pushLocalMovement(buildMovement(movSup, 'AJUSTE', diff, prevStock, updatedData.stock));
+          showToast('info', 'Insumo actualizado localmente.');
+        }
+
+        setEditSupplyModal(null);
+      } catch (err) {
+        console.error('Error editando insumo:', err);
+        showToast('error', `Error al editar: ${err.message}`);
+      } finally {
+        setIsEditingSupply(false);
       }
-
-      setEditSupplyModal(null);
-    } catch (err) {
-      console.error('Error editando insumo:', err);
-      showToast('error', `Error al editar: ${err.message}`);
-    } finally {
-      setIsEditingSupply(false);
-    }
+    });
   };
 
   const handleDeleteSupply = async (supplyId, supplyName) => {
@@ -1248,23 +1686,100 @@ export default function LanchitaPOS() {
     }
   };
 
-  const handleQuickAdjustStock = async (supplyId, delta) => {
-    try {
-      if (isFirebaseConfigured) {
-        const supRef = doc(db, 'insumos', supplyId);
-        await updateDoc(supRef, {
-          stock: increment(delta),
-        });
-        showToast('success', `Stock actualizado (${delta > 0 ? `+${delta}` : delta}).`);
-      } else {
-        setSupplies((prev) =>
-          prev.map((s) => (s.id === supplyId ? { ...s, stock: Math.max(0, s.stock + delta) } : s))
-        );
-      }
-    } catch (err) {
-      console.error('Error ajustando stock:', err);
-      showToast('error', `Error al ajustar stock: ${err.message}`);
+  // -------------------------------------------------------------------------
+  // CONTROL DE ACCESO A STOCK (Don Marco o encargado con PIN)
+  // -------------------------------------------------------------------------
+  const ensureStockAuth = (action) => {
+    if (authSession?.role === 'admin' || Date.now() < stockUnlockUntil) {
+      action();
+      return;
     }
+    pendingStockActionRef.current = action;
+    setStockPinInput('');
+    setStockPinError('');
+    setShowStockPinModal(true);
+  };
+
+  const handleVerifyStockPin = () => {
+    if (stockPinInput === ENCARGADO_PIN) {
+      setStockUnlockUntil(Date.now() + STOCK_UNLOCK_MS);
+      setShowStockPinModal(false);
+      setStockPinInput('');
+      setStockPinError('');
+      const action = pendingStockActionRef.current;
+      pendingStockActionRef.current = null;
+      showToast('success', 'Autorización de encargado válida por 5 minutos.');
+      if (action) action();
+    } else {
+      setStockPinError('PIN incorrecto. Solicita el PIN a Don Marco.');
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // KARDEX: MOVIMIENTOS DE INVENTARIO
+  // -------------------------------------------------------------------------
+  const buildMovement = (sup, tipo, cantidad, stockAnterior, stockNuevo) => ({
+    fecha: serverTimestamp(),
+    timestamp: Date.now(),
+    insumoId: sup.id,
+    nombreInsumo: sup.nombre,
+    tipo,
+    cantidad,
+    unidad: sup.unidad || '',
+    stockAnterior,
+    stockNuevo,
+    responsable: activeUser,
+    area: activeArea,
+  });
+
+  const pushLocalMovement = (mov) =>
+    setMovements((prev) => [
+      {
+        id: `mov_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        ...mov,
+        fecha: null,
+        tsMs: mov.timestamp,
+      },
+      ...prev,
+    ]);
+
+  // Aplica un movimiento (INGRESO | MERMA | AJUSTE) con delta firmado y deja registro en el Kardex
+  const applyStockMovement = async (sup, tipo, delta) => {
+    const stockAnterior = Number(sup.stock) || 0;
+    const stockNuevo = round2(stockAnterior + delta);
+
+    if (stockNuevo < 0) {
+      showToast('error', `Stock insuficiente: solo quedan ${stockAnterior} ${sup.unidad}.`);
+      return false;
+    }
+
+    const mov = buildMovement(sup, tipo, delta, stockAnterior, stockNuevo);
+
+    if (isFirebaseConfigured) {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'insumos', sup.id), { stock: increment(delta) });
+      batch.set(doc(collection(db, 'movimientos_inventario')), mov);
+      await batch.commit();
+    } else {
+      setSupplies((prev) => prev.map((s) => (s.id === sup.id ? { ...s, stock: stockNuevo } : s)));
+      pushLocalMovement(mov);
+    }
+    return true;
+  };
+
+  const handleQuickAdjustStock = (supplyId, delta) => {
+    const sup = supplies.find((s) => s.id === supplyId);
+    if (!sup) return;
+
+    ensureStockAuth(async () => {
+      try {
+        const ok = await applyStockMovement(sup, 'AJUSTE', delta);
+        if (ok) showToast('success', `Stock actualizado (${delta > 0 ? `+${delta}` : delta}) y registrado en Kardex.`);
+      } catch (err) {
+        console.error('Error ajustando stock:', err);
+        showToast('error', `Error al ajustar stock: ${err.message}`);
+      }
+    });
   };
 
   const activeRestockSupply = useMemo(() => {
@@ -1275,34 +1790,32 @@ export default function LanchitaPOS() {
     return showRestockModal;
   }, [showRestockModal, selectedRestockId, supplies]);
 
-  const handleRestockSubmit = async (e) => {
+  const handleRestockSubmit = (e) => {
     e.preventDefault();
-    if (!activeRestockSupply || !restockAmount || Number(restockAmount) <= 0) return;
+    const raw = Number(restockAmount);
+    if (!activeRestockSupply || !raw) return;
 
-    const toAdd = Number(restockAmount);
+    let delta = raw;
+    if (movementType === 'INGRESO') delta = Math.abs(raw);
+    if (movementType === 'MERMA') delta = -Math.abs(raw);
 
-    try {
-      if (isFirebaseConfigured) {
-        const supRef = doc(db, 'insumos', activeRestockSupply.id);
-        const batch = writeBatch(db);
-        batch.update(supRef, {
-          stock: increment(toAdd),
-        });
-        await batch.commit();
-        showToast('success', `+${toAdd} ${activeRestockSupply.unidad} ingresados a Firestore.`);
-      } else {
-        setSupplies((prev) =>
-          prev.map((s) => (s.id === activeRestockSupply.id ? { ...s, stock: s.stock + toAdd } : s))
-        );
-        showToast('info', `Ingreso local registrado (+${toAdd}).`);
+    const sup = activeRestockSupply;
+    const tipo = movementType;
+
+    ensureStockAuth(async () => {
+      try {
+        const ok = await applyStockMovement(sup, tipo, delta);
+        if (ok) {
+          showToast('success', `${tipo}: ${delta > 0 ? '+' : ''}${delta} ${sup.unidad} registrado en Kardex.`);
+          setShowRestockModal(null);
+          setRestockAmount('');
+          setMovementType('INGRESO');
+        }
+      } catch (error) {
+        console.error('Error en movimiento de stock:', error);
+        showToast('error', `Error: ${error.message}`);
       }
-
-      setShowRestockModal(null);
-      setRestockAmount('');
-    } catch (error) {
-      console.error('Error en restock:', error);
-      showToast('error', `Error: ${error.message}`);
-    }
+    });
   };
 
   // Preparación de lotes
@@ -1386,25 +1899,17 @@ export default function LanchitaPOS() {
 
   // Resumen del día
   const dailySummary = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const todaySales = salesHistory.filter((s) => {
-      if (!s.timestamp) return true;
-      return s.timestamp.startsWith(today);
-    });
+    const todaySales = salesHistory.filter((s) => isToday(saleMs(s)));
 
     const total = todaySales.reduce((acc, s) => acc + (Number(s.total) || 0), 0);
 
-    const byMethod = {
-      efectivo: todaySales
-        .filter((s) => s.metodoPago === 'efectivo')
-        .reduce((acc, s) => acc + (Number(s.total) || 0), 0),
-      yape: todaySales
-        .filter((s) => s.metodoPago === 'yape_plin' || s.metodoPago === 'yape')
-        .reduce((acc, s) => acc + (Number(s.total) || 0), 0),
-      tarjeta: todaySales
-        .filter((s) => s.metodoPago === 'tarjeta')
-        .reduce((acc, s) => acc + (Number(s.total) || 0), 0),
-    };
+    // Desglose por método considerando pagos divididos (pagos[]) y ventas simples
+    const byMethod = { efectivo: 0, yape: 0, tarjeta: 0 };
+    todaySales.forEach((s) => {
+      salePayments(s).forEach((p) => {
+        if (byMethod[p.metodo] !== undefined) byMethod[p.metodo] += p.monto;
+      });
+    });
 
     const byArea = {
       salon: todaySales
@@ -1434,6 +1939,53 @@ export default function LanchitaPOS() {
       prodCounts,
     };
   }, [salesHistory]);
+
+  // Flujo de caja del día (auditoría del dueño)
+  const cajaSummary = useMemo(() => {
+    const salidas = cajaEntries.filter((c) => isToday(c.tsMs));
+    const totalSalidas = round2(salidas.reduce((acc, c) => acc + (Number(c.monto) || 0), 0));
+    const efectivoVentas = round2(dailySummary.byMethod.efectivo);
+    return {
+      salidas,
+      totalSalidas,
+      efectivoVentas,
+      efectivoCaja: round2(efectivoVentas - totalSalidas),
+      yape: round2(dailySummary.byMethod.yape),
+      tarjeta: round2(dailySummary.byMethod.tarjeta),
+      digital: round2(dailySummary.byMethod.yape + dailySummary.byMethod.tarjeta),
+      total: round2(dailySummary.total),
+      tickets: dailySummary.ticketsCount,
+    };
+  }, [cajaEntries, dailySummary]);
+
+  const handleRegisterCajaSalida = async (e) => {
+    e.preventDefault();
+    const monto = Number(cajaForm.monto);
+    if (!cajaForm.motivo.trim() || !(monto > 0)) return;
+
+    const entry = {
+      tipo: 'SALIDA',
+      motivo: cajaForm.motivo.trim(),
+      monto: round2(monto),
+      responsable: cajaForm.responsable.trim() || activeUser,
+      area: activeArea,
+      timestamp: Date.now(),
+    };
+
+    try {
+      if (isFirebaseConfigured) {
+        await addDoc(collection(db, 'caja_chica'), { ...entry, fecha: serverTimestamp() });
+      } else {
+        setCajaEntries((prev) => [{ id: `caja_${Date.now()}`, ...entry, tsMs: entry.timestamp }, ...prev]);
+      }
+      showToast('success', `Salida de caja registrada: S/ ${entry.monto.toFixed(2)} (${entry.motivo}).`);
+      setShowCajaModal(false);
+      setCajaForm({ motivo: '', monto: '', responsable: '' });
+    } catch (err) {
+      console.error('Error registrando salida de caja:', err);
+      showToast('error', `Error al registrar salida: ${err.message}`);
+    }
+  };
 
   // =========================================================================
   // SUB-COMPONENTES DE RENDER
@@ -1566,37 +2118,74 @@ export default function LanchitaPOS() {
   const renderVentasTab = () => {
     return (
       <div className="space-y-4 pb-32 pt-2">
-        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Mesa:</span>
-            <select
-              value={selectedTable}
-              onChange={(e) => setSelectedTable(e.target.value)}
-              className="bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+        <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setShowTablesModal(true)}
+              className="flex-1 min-w-0 flex items-center gap-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-xl px-3 py-2 transition active:scale-98 cursor-pointer shadow-xs"
             >
-              <option value="Mesa 01">🐟 Mesa 01</option>
-              <option value="Mesa 02">🐟 Mesa 02</option>
-              <option value="Mesa 03">🐟 Mesa 03</option>
-              <option value="Mesa 04">🐟 Mesa 04</option>
-              <option value="Barra 01">🍻 Barra Banqueta 1</option>
-              <option value="Barra 02">🍻 Barra Banqueta 2</option>
-              <option value="Terraza VIP 1">🎤 Terraza VIP 1</option>
-              <option value="Terraza VIP 2">🎤 Terraza VIP 2</option>
-              <option value="Para Llevar">🥡 Para Llevar / Delivery</option>
-            </select>
+              <LayoutGrid className="w-5 h-5 text-amber-400 flex-shrink-0" />
+              <div className="text-left min-w-0">
+                <div className="text-[10px] text-amber-400 uppercase font-extrabold tracking-wider leading-none">
+                  Cuenta activa
+                </div>
+                <div className="text-sm font-black truncate mt-0.5">{selectedTable}</div>
+              </div>
+              <ChevronDown className="w-4 h-4 ml-auto text-slate-300 flex-shrink-0" />
+            </button>
+
+            {orderItems.length > 0 && (
+              <button
+                onClick={() => {
+                  if (splitPayments.length > 0) {
+                    showToast('error', 'La cuenta tiene pagos parciales. Anúlalos desde el cobro antes de limpiar.');
+                    return;
+                  }
+                  if (window.confirm('¿Vaciar la comanda actual?')) setOrderCart({});
+                }}
+                className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-2.5 rounded-xl border border-red-200 font-semibold transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Limpiar</span>
+              </button>
+            )}
           </div>
 
-          {orderItems.length > 0 && (
-            <button
-              onClick={() => {
-                if (window.confirm('¿Vaciar la comanda actual?')) setOrderCart({});
-              }}
-              className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-lg border border-red-200 font-semibold transition cursor-pointer"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Limpiar</span>
-            </button>
-          )}
+          {/* Cuentas abiertas en paralelo: cambio rápido sin perder pedidos */}
+          {(() => {
+            const badges = getAccountBadges();
+            if (badges.length === 0) return null;
+            return (
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                {badges.map((b) => {
+                  const isCurrent = b.name === selectedTable;
+                  return (
+                    <button
+                      key={b.name}
+                      type="button"
+                      onClick={() => handleSwitchTable(b.name)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-xl border-2 text-left transition cursor-pointer active:scale-95 ${
+                        isCurrent
+                          ? 'border-amber-500 bg-amber-50'
+                          : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="text-[11px] font-black text-slate-900 leading-tight">{b.name}</div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold mt-0.5">
+                        <span className="text-emerald-700 font-mono">S/ {b.total.toFixed(2)}</span>
+                        <span className="text-slate-400 flex items-center gap-0.5">
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatElapsed(b.openedAt)}
+                        </span>
+                        {b.split && <span className="text-purple-600">÷</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         <div className="space-y-3">
@@ -1852,6 +2441,15 @@ export default function LanchitaPOS() {
                 <span>+ Nuevo Insumo</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setShowKardexModal(true)}
+              className="bg-[#0F172A] hover:bg-slate-800 text-amber-400 text-xs font-black px-3 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>📋 Historial de Movimientos</span>
+            </button>
 
             {/* Indicador de Solo Lectura para Mozo/Caja */}
             {authSession?.role === 'mozo_caja' && (
@@ -2430,10 +3028,16 @@ export default function LanchitaPOS() {
     const change = numCash >= totalOrderAmount ? numCash - totalOrderAmount : 0;
     const isCashValid = paymentMethod !== 'efectivo' || numCash >= totalOrderAmount;
 
+    const hasPartial = splitPayments.length > 0;
+    const tab = hasPartial ? 'dividir' : payTab;
+    const remaining = round2(totalOrderAmount - splitPaidAmount);
+    const progress = totalOrderAmount > 0 ? Math.min(100, (splitPaidAmount / totalOrderAmount) * 100) : 0;
+    const methodLabel = (m) => (m === 'yape' || m === 'yape_plin' ? 'Yape/Plin' : m === 'tarjeta' ? 'Tarjeta' : 'Efectivo');
+
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-        <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-          <div className="p-4 bg-[#0F172A] text-white flex items-center justify-between">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl max-w-md w-full max-h-[94vh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+          <div className="p-4 bg-[#0F172A] text-white flex items-center justify-between flex-shrink-0">
             <div>
               <span className="text-[10px] text-amber-400 font-extrabold uppercase tracking-widest">
                 Cobro Comanda • {selectedTable}
@@ -2448,7 +3052,7 @@ export default function LanchitaPOS() {
             </button>
           </div>
 
-          <div className="p-5 space-y-4 bg-slate-50">
+          <div className="p-5 space-y-4 bg-slate-50 overflow-y-auto">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center shadow-xs">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                 Total a Cobrar
@@ -2461,110 +3065,247 @@ export default function LanchitaPOS() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Método de Pago
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('efectivo')}
-                  className={`p-3 rounded-xl border-2 text-center transition cursor-pointer ${
-                    paymentMethod === 'efectivo'
-                      ? 'border-[#059669] bg-emerald-50 text-emerald-950 font-black shadow-xs'
-                      : 'border-slate-200 bg-white text-slate-600 font-semibold'
-                  }`}
-                >
-                  <Banknote className="w-5 h-5 mx-auto mb-1 text-emerald-600" />
-                  <span className="text-xs">Efectivo</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('yape')}
-                  className={`p-3 rounded-xl border-2 text-center transition cursor-pointer ${
-                    paymentMethod === 'yape'
-                      ? 'border-purple-600 bg-purple-50 text-purple-950 font-black shadow-xs'
-                      : 'border-slate-200 bg-white text-slate-600 font-semibold'
-                  }`}
-                >
-                  <QrCode className="w-5 h-5 mx-auto mb-1 text-purple-600" />
-                  <span className="text-xs">Yape/Plin</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod('tarjeta')}
-                  className={`p-3 rounded-xl border-2 text-center transition cursor-pointer ${
-                    paymentMethod === 'tarjeta'
-                      ? 'border-sky-600 bg-sky-50 text-sky-950 font-black shadow-xs'
-                      : 'border-slate-200 bg-white text-slate-600 font-semibold'
-                  }`}
-                >
-                  <CreditCard className="w-5 h-5 mx-auto mb-1 text-sky-600" />
-                  <span className="text-xs">Tarjeta</span>
-                </button>
-              </div>
+            {/* Toggle: Pago único / Dividir cuenta */}
+            <div className="grid grid-cols-2 gap-1 bg-slate-200 p-1 rounded-xl">
+              <button
+                type="button"
+                disabled={hasPartial}
+                onClick={() => setPayTab('unico')}
+                className={`py-2 rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 ${
+                  tab === 'unico' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+                } ${hasPartial ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <Banknote className="w-3.5 h-3.5" />
+                Pago Único
+              </button>
+              <button
+                type="button"
+                onClick={() => setPayTab('dividir')}
+                className={`py-2 rounded-lg text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  tab === 'dividir' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Dividir Cuenta
+              </button>
             </div>
 
-            {paymentMethod === 'efectivo' && (
-              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-700">Monto Recibido (S/):</span>
-                  <input
-                    type="number"
-                    value={cashGiven}
-                    onChange={(e) => setCashGiven(e.target.value)}
-                    placeholder={totalOrderAmount.toFixed(2)}
-                    className="w-32 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-right font-mono font-black text-base focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
+            {tab === 'unico' && (
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Método de Pago
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PAY_METHODS.map((m) => {
+                      const Icon = m.icon;
+                      return (
+                        <button
+                          key={m.key}
+                          type="button"
+                          onClick={() => setPaymentMethod(m.key)}
+                          className={`p-3 rounded-xl border-2 text-center transition cursor-pointer ${
+                            paymentMethod === m.key
+                              ? `${m.active} font-black shadow-xs`
+                              : 'border-slate-200 bg-white text-slate-600 font-semibold'
+                          }`}
+                        >
+                          <Icon className={`w-5 h-5 mx-auto mb-1 ${m.color}`} />
+                          <span className="text-xs">{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="flex gap-1 justify-between">
-                  {[totalOrderAmount, 20, 50, 100, 200].map((val, idx) => (
+                {paymentMethod === 'efectivo' && (
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-slate-700">Monto Recibido (S/):</span>
+                      <input
+                        type="number"
+                        value={cashGiven}
+                        onChange={(e) => setCashGiven(e.target.value)}
+                        placeholder={totalOrderAmount.toFixed(2)}
+                        className="w-32 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-right font-mono font-black text-base focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+
+                    <div className="flex gap-1 justify-between">
+                      {[totalOrderAmount, 20, 50, 100, 200].map((val, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setCashGiven(val.toString())}
+                          className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold font-mono border border-slate-200 transition cursor-pointer"
+                        >
+                          {idx === 0 ? 'Exacto' : `S/${val}`}
+                        </button>
+                      ))}
+                    </div>
+
+                    {numCash > 0 && (
+                      <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs font-bold">
+                        <span className="text-slate-600">Vuelto a entregar:</span>
+                        <span
+                          className={`text-base font-mono font-black ${
+                            numCash >= totalOrderAmount ? 'text-emerald-700' : 'text-red-600'
+                          }`}
+                        >
+                          {numCash >= totalOrderAmount ? `S/ ${change.toFixed(2)}` : 'Monto insuficiente'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  disabled={!isCashValid || isProcessingSale}
+                  onClick={handleConfirmSale}
+                  className={`w-full py-3.5 rounded-xl font-black text-sm shadow-lg flex items-center justify-center gap-2 transition active:scale-98 ${
+                    isCashValid && !isProcessingSale
+                      ? 'bg-[#059669] hover:bg-[#047857] text-white cursor-pointer'
+                      : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <CheckCircle2 className="w-5 h-5" />
+                  <span>
+                    {isProcessingSale
+                      ? 'Registrando Transacción Atómica...'
+                      : 'Confirmar Pedido & Descontar Insumos'}
+                  </span>
+                </button>
+              </>
+            )}
+
+            {tab === 'dividir' && (
+              <div className="space-y-3">
+                {/* Selector de personas */}
+                <div className="bg-white p-3 rounded-2xl border border-slate-200 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-700">Dividir en partes iguales</div>
+                    <div className="text-[11px] text-slate-500">
+                      {splitN} personas • S/ {splitShares[0].toFixed(2)} c/u
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
                     <button
-                      key={idx}
                       type="button"
-                      onClick={() => setCashGiven(val.toString())}
-                      className="flex-1 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold font-mono border border-slate-200 transition cursor-pointer"
+                      disabled={hasPartial || splitN <= 2}
+                      onClick={() => setSplitN((n) => Math.max(2, n - 1))}
+                      className="w-9 h-9 rounded-lg bg-white shadow-xs flex items-center justify-center disabled:opacity-40 cursor-pointer"
                     >
-                      {idx === 0 ? 'Exacto' : `S/${val}`}
+                      <Minus className="w-4 h-4" />
                     </button>
-                  ))}
+                    <span className="w-7 text-center font-black font-mono text-base">{splitN}</span>
+                    <button
+                      type="button"
+                      disabled={hasPartial || splitN >= 12}
+                      onClick={() => setSplitN((n) => Math.min(12, n + 1))}
+                      className="w-9 h-9 rounded-lg bg-[#0F172A] text-white shadow-xs flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                {numCash > 0 && (
-                  <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs font-bold">
-                    <span className="text-slate-600">Vuelto a entregar:</span>
-                    <span
-                      className={`text-base font-mono font-black ${
-                        change >= 0 ? 'text-emerald-700' : 'text-red-600'
-                      }`}
-                    >
-                      {change >= 0 ? `S/ ${change.toFixed(2)}` : 'Monto insuficiente'}
+                {/* Progreso de cobro */}
+                <div className="bg-white p-3 rounded-2xl border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between text-xs font-bold">
+                    <span className="text-slate-600">Cobrado</span>
+                    <span className="font-mono text-emerald-700">
+                      S/ {splitPaidAmount.toFixed(2)} / S/ {totalOrderAmount.toFixed(2)}
                     </span>
                   </div>
+                  <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div className="h-full bg-[#059669] transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {splitIsComplete
+                      ? '100% cubierto'
+                      : `Faltan S/ ${remaining.toFixed(2)}. La mesa se cierra y se descuenta el inventario al cubrir el 100%.`}
+                  </div>
+                </div>
+
+                {/* Personas */}
+                <div className="space-y-2">
+                  {splitShares.map((share, idx) => {
+                    const paid = splitPayments.find((p) => p.idx === idx);
+                    const selected = splitMethods[idx] || 'efectivo';
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3 rounded-2xl border-2 ${
+                          paid ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800">Persona {idx + 1}</span>
+                          <span className="font-mono font-black text-sm text-slate-900">S/ {share.toFixed(2)}</span>
+                        </div>
+
+                        {paid ? (
+                          <div className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                            <CheckCircle2 className="w-4 h-4" />
+                            Cobrado en {methodLabel(paid.metodo)}
+                          </div>
+                        ) : (
+                          <div className="mt-2 flex items-center gap-1.5">
+                            {PAY_METHODS.map((m) => {
+                              const Icon = m.icon;
+                              return (
+                                <button
+                                  key={m.key}
+                                  type="button"
+                                  onClick={() => setSplitMethods((prev) => ({ ...prev, [idx]: m.key }))}
+                                  className={`p-2 rounded-lg border-2 transition cursor-pointer ${
+                                    selected === m.key ? m.active : 'border-slate-200 bg-white text-slate-500'
+                                  }`}
+                                  title={m.label}
+                                >
+                                  <Icon className={`w-4 h-4 ${m.color}`} />
+                                </button>
+                              );
+                            })}
+                            <button
+                              type="button"
+                              disabled={isProcessingSale}
+                              onClick={() => handlePaySplitShare(idx)}
+                              className="flex-1 py-2 bg-[#059669] hover:bg-[#047857] text-white rounded-lg text-xs font-black transition active:scale-95 cursor-pointer disabled:opacity-50"
+                            >
+                              Cobrar S/ {share.toFixed(2)} ({methodLabel(selected)})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {splitIsComplete && (
+                  <button
+                    type="button"
+                    disabled={isProcessingSale}
+                    onClick={handleFinalizeSplit}
+                    className="w-full py-3.5 rounded-xl font-black text-sm shadow-lg bg-[#059669] hover:bg-[#047857] text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-5 h-5" />
+                    {isProcessingSale ? 'Registrando...' : 'Finalizar Venta & Descontar Insumos'}
+                  </button>
+                )}
+
+                {hasPartial && !splitIsComplete && (
+                  <button
+                    type="button"
+                    onClick={handleResetSplit}
+                    className="w-full py-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl cursor-pointer"
+                  >
+                    Anular pagos parciales
+                  </button>
                 )}
               </div>
             )}
-
-            <button
-              type="button"
-              disabled={!isCashValid || isProcessingSale}
-              onClick={handleConfirmSale}
-              className={`w-full py-3.5 rounded-xl font-black text-sm shadow-lg flex items-center justify-center gap-2 transition active:scale-98 ${
-                isCashValid && !isProcessingSale
-                  ? 'bg-[#059669] hover:bg-[#047857] text-white cursor-pointer'
-                  : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-              }`}
-            >
-              <CheckCircle2 className="w-5 h-5" />
-              <span>
-                {isProcessingSale
-                  ? 'Registrando Transacción Atómica...'
-                  : 'Confirmar Pedido & Descontar Insumos'}
-              </span>
-            </button>
           </div>
         </div>
       </div>
@@ -2828,6 +3569,7 @@ export default function LanchitaPOS() {
               onClick={() => {
                 setShowRestockModal(null);
                 setRestockAmount('');
+                setMovementType('INGRESO');
               }}
               className="p-1 rounded-full bg-white/10 hover:bg-white/20 cursor-pointer"
             >
@@ -2865,11 +3607,38 @@ export default function LanchitaPOS() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Cantidad a Sumar {activeRestockSupply ? `(${activeRestockSupply.unidad})` : ''}:
+                Tipo de Movimiento (Kardex)
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { k: 'INGRESO', l: '📥 Ingreso' },
+                  { k: 'MERMA', l: '🗑️ Merma' },
+                  { k: 'AJUSTE', l: '⚖️ Ajuste ±' },
+                ].map((t) => (
+                  <button
+                    key={t.k}
+                    type="button"
+                    onClick={() => setMovementType(t.k)}
+                    className={`py-2 rounded-lg border-2 text-[11px] font-black transition cursor-pointer ${
+                      movementType === t.k
+                        ? 'border-[#0F172A] bg-[#0F172A] text-amber-400'
+                        : 'border-slate-200 bg-white text-slate-600'
+                    }`}
+                  >
+                    {t.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                {movementType === 'INGRESO' ? 'Cantidad a Sumar' : movementType === 'MERMA' ? 'Cantidad Perdida (resta)' : 'Ajuste (+ suma / - resta)'}{' '}
+                {activeRestockSupply ? `(${activeRestockSupply.unidad})` : ''}:
               </label>
               <input
                 type="number"
-                min="0.1"
+                min={movementType === 'AJUSTE' ? undefined : '0.1'}
                 step="any"
                 required
                 value={restockAmount}
@@ -2956,9 +3725,19 @@ export default function LanchitaPOS() {
               <div className="flex justify-between text-[11px] text-slate-600">
                 <span>Método:</span>
                 <span className="uppercase font-bold">
-                  {receiptModal.metodoPago || receiptModal.paymentMethod}
+                  {receiptModal.pagos && receiptModal.pagos.length > 1 ? `MIXTO (${receiptModal.pagos.length} pagos)` : receiptModal.metodoPago || receiptModal.paymentMethod}
                 </span>
               </div>
+              {receiptModal.pagos && receiptModal.pagos.length > 1 && (
+                <div className="text-[11px] text-slate-600 space-y-0.5 pt-1">
+                  {receiptModal.pagos.map((p, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span>Persona {p.persona || i + 1}:</span>
+                      <span className="font-bold uppercase">{p.metodo} • S/ {(Number(p.monto) || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {receiptModal.montoRecibido && (
                 <div className="flex justify-between text-[11px] text-slate-600">
                   <span>Vuelto:</span>
@@ -2992,6 +3771,479 @@ export default function LanchitaPOS() {
     );
   };
 
+  // =========================================================================
+  // MODAL: MESAS Y CUENTAS (MULTIMESA + SUBCUENTAS)
+  // =========================================================================
+  const renderTablesModal = () => {
+    if (!showTablesModal) return null;
+    const badges = getAccountBadges();
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-2xl w-full max-h-[92vh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+          <div className="p-4 bg-[#0F172A] text-white flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <LayoutGrid className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="font-extrabold text-sm leading-tight">Mesas y Cuentas Abiertas</h3>
+                <p className="text-[10px] text-slate-400">
+                  {badges.filter((b) => b.count > 0).length} ocupadas • al cambiar, tu pedido se guarda solo
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowTablesModal(false)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-3 bg-slate-50 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {TABLES.map((t) => {
+              const main = badges.find((b) => b.name === t.name);
+              const subs = badges.filter((b) => b.name.startsWith(`${t.name} - `));
+              const occupied = (main && main.count > 0) || subs.some((s) => s.count > 0);
+              return (
+                <div
+                  key={t.name}
+                  className={`rounded-2xl border-2 p-2.5 space-y-1.5 ${
+                    occupied ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchTable(t.name)}
+                    className={`w-full text-left rounded-lg p-1 cursor-pointer ${
+                      selectedTable === t.name ? 'ring-2 ring-[#0F172A]' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-black text-xs text-slate-900">
+                        {t.emoji} {t.name}
+                      </span>
+                      {main && main.count > 0 && (
+                        <span className="text-[10px] font-black font-mono bg-emerald-600 text-white px-1.5 py-0.5 rounded-md">
+                          S/ {main.total.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                      {main && main.count > 0 ? (
+                        <>
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatElapsed(main.openedAt)} • {main.count} ítems
+                        </>
+                      ) : (
+                        'Libre'
+                      )}
+                    </div>
+                  </button>
+
+                  {subs.map((s) => (
+                    <button
+                      key={s.name}
+                      type="button"
+                      onClick={() => handleSwitchTable(s.name)}
+                      className={`w-full flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg bg-white border text-[10px] font-bold cursor-pointer ${
+                        selectedTable === s.name ? 'border-[#0F172A] ring-1 ring-[#0F172A]' : 'border-amber-300'
+                      }`}
+                    >
+                      <span className="truncate text-slate-800">{s.name.split(' - ')[1]}</span>
+                      <span className="font-mono text-emerald-700 whitespace-nowrap">
+                        S/ {s.total.toFixed(2)} • {formatElapsed(s.openedAt)}
+                      </span>
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => handleNewSubaccount(t.name)}
+                    className="w-full text-[10px] font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-dashed border-slate-300 rounded-lg py-1.5 cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Subcuenta
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // MODAL: PIN DE ENCARGADO PARA MODIFICAR STOCK
+  // =========================================================================
+  const renderStockPinModal = () => {
+    if (!showStockPinModal) return null;
+
+    const closeModal = () => {
+      setShowStockPinModal(false);
+      setStockPinInput('');
+      setStockPinError('');
+      pendingStockActionRef.current = null;
+    };
+
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl max-w-xs w-full shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-[#0F172A] text-white flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-400" />
+              <h3 className="font-extrabold text-sm">Autorización de Stock</h3>
+            </div>
+            <button onClick={closeModal} className="p-1 rounded-full bg-white/10 hover:bg-white/20 cursor-pointer">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-4 space-y-3 bg-slate-50 text-center">
+            <div className="w-10 h-10 mx-auto rounded-full bg-amber-100 flex items-center justify-center">
+              <KeyRound className="w-5 h-5 text-amber-600" />
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Solo Don Marco o un encargado con PIN puede añadir o modificar stock. Cada movimiento queda en el Kardex.
+            </p>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              autoFocus
+              value={stockPinInput}
+              onChange={(e) => {
+                setStockPinInput(e.target.value);
+                setStockPinError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleVerifyStockPin();
+              }}
+              placeholder="••••"
+              className="w-36 mx-auto text-center font-mono font-black text-2xl tracking-widest bg-white border border-slate-300 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+            />
+            {stockPinError && <p className="text-[11px] font-bold text-red-600">{stockPinError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="flex-1 py-2.5 bg-slate-200 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-300 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleVerifyStockPin}
+                className="flex-1 py-2.5 bg-[#0F172A] text-amber-400 rounded-xl text-xs font-black hover:bg-slate-800 cursor-pointer"
+              >
+                Autorizar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // MODAL: KARDEX (HISTORIAL DE MOVIMIENTOS DE INVENTARIO)
+  // =========================================================================
+  const renderKardexModal = () => {
+    if (!showKardexModal) return null;
+
+    const list = movements.filter((m) => kardexFilter === 'TODOS' || m.tipo === kardexFilter);
+    const typeStyle = {
+      INGRESO: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      MERMA: 'bg-red-100 text-red-700 border-red-200',
+      AJUSTE: 'bg-amber-100 text-amber-800 border-amber-200',
+    };
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-3xl w-full max-h-[92vh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+          <div className="p-4 bg-[#0F172A] text-white flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="font-extrabold text-sm leading-tight">📋 Historial de Movimientos (Kardex)</h3>
+                <p className="text-[10px] text-slate-400">{movements.length} movimientos auditables</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowKardexModal(false)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="px-3 pt-3 flex gap-1.5 flex-wrap bg-slate-50 flex-shrink-0">
+            {['TODOS', 'INGRESO', 'MERMA', 'AJUSTE'].map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setKardexFilter(f)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-black border transition cursor-pointer ${
+                  kardexFilter === f
+                    ? 'bg-[#0F172A] text-amber-400 border-[#0F172A]'
+                    : 'bg-white text-slate-600 border-slate-300'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-3 bg-slate-50 overflow-auto">
+            {list.length === 0 ? (
+              <div className="text-center text-sm text-slate-400 py-10">
+                Aún no hay movimientos registrados.
+              </div>
+            ) : (
+              <table className="w-full text-xs bg-white rounded-xl overflow-hidden border border-slate-200 min-w-[560px]">
+                <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] tracking-wider">
+                  <tr>
+                    <th className="text-left px-2.5 py-2">Fecha</th>
+                    <th className="text-left px-2.5 py-2">Hora</th>
+                    <th className="text-left px-2.5 py-2">Insumo</th>
+                    <th className="text-left px-2.5 py-2">Tipo</th>
+                    <th className="text-right px-2.5 py-2">Cantidad</th>
+                    <th className="text-right px-2.5 py-2">Stock</th>
+                    <th className="text-left px-2.5 py-2">Responsable</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {list.map((m) => {
+                    const d = m.tsMs ? new Date(m.tsMs) : null;
+                    const qty = Number(m.cantidad) || 0;
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-2.5 py-2 whitespace-nowrap text-slate-700">
+                          {d ? d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' }) : '—'}
+                        </td>
+                        <td className="px-2.5 py-2 whitespace-nowrap font-mono text-slate-700">
+                          {d ? d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '—'}
+                        </td>
+                        <td className="px-2.5 py-2 font-bold text-slate-900">{m.nombreInsumo}</td>
+                        <td className="px-2.5 py-2">
+                          <span
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                              typeStyle[m.tipo] || 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}
+                          >
+                            {m.tipo}
+                          </span>
+                        </td>
+                        <td
+                          className={`px-2.5 py-2 text-right font-mono font-black whitespace-nowrap ${
+                            qty >= 0 ? 'text-emerald-700' : 'text-red-600'
+                          }`}
+                        >
+                          {qty > 0 ? '+' : ''}
+                          {qty} {m.unidad}
+                        </td>
+                        <td className="px-2.5 py-2 text-right font-mono text-slate-500 whitespace-nowrap">
+                          {m.stockAnterior} → <b className="text-slate-900">{m.stockNuevo}</b>
+                        </td>
+                        <td className="px-2.5 py-2 font-semibold text-slate-700">{m.responsable}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // PESTAÑA: FLUJO DE CAJA (AUDITORÍA PARA EL DUEÑO)
+  // =========================================================================
+  const renderCajaTab = () => {
+    const c = cajaSummary;
+
+    return (
+      <div className="space-y-4 pb-28 pt-2">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-emerald-600" />
+              Flujo de Caja • Auditoría del Dueño
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Cifras del día sincronizadas en tiempo real desde cualquier dispositivo
+            </p>
+          </div>
+          <span
+            className={`text-[10px] font-bold px-2 py-1 rounded-full border flex items-center gap-1 ${
+              isFirestoreOnline
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-amber-50 text-amber-700 border-amber-200'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isFirestoreOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+            {isFirestoreOnline ? 'En vivo' : 'Local'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Card 1 */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-800 text-white shadow-md">
+            <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-emerald-100">
+              <Banknote className="w-4 h-4" /> Efectivo Físico en Caja
+            </div>
+            <div className={`text-3xl font-black font-mono mt-1 ${c.efectivoCaja < 0 ? 'text-red-200' : ''}`}>
+              S/ {c.efectivoCaja.toFixed(2)}
+            </div>
+            <div className="text-[11px] text-emerald-100 mt-1.5 leading-tight">
+              Ventas efectivo S/ {c.efectivoVentas.toFixed(2)} − Salidas S/ {c.totalSalidas.toFixed(2)}
+            </div>
+          </div>
+
+          {/* Card 2 */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-600 to-sky-700 text-white shadow-md">
+            <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-purple-100">
+              <QrCode className="w-4 h-4" /> Dinero Digital
+            </div>
+            <div className="text-3xl font-black font-mono mt-1">S/ {c.digital.toFixed(2)}</div>
+            <div className="text-[11px] text-purple-100 mt-1.5 leading-tight">
+              Yape/Plin S/ {c.yape.toFixed(2)} • Tarjeta S/ {c.tarjeta.toFixed(2)}
+            </div>
+          </div>
+
+          {/* Card 3 */}
+          <div className="p-4 rounded-2xl bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white shadow-md border border-slate-700">
+            <div className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+              <Receipt className="w-4 h-4" /> Total Facturado del Día
+            </div>
+            <div className="text-3xl font-black font-mono mt-1 text-amber-300">S/ {c.total.toFixed(2)}</div>
+            <div className="text-[11px] text-slate-300 mt-1.5">{c.tickets} comandas cobradas hoy</div>
+          </div>
+        </div>
+
+        {/* Caja chica */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900">Movimientos de Caja Chica</h3>
+              <p className="text-[11px] text-slate-500">
+                Salidas de hoy: <b className="font-mono text-red-600">S/ {c.totalSalidas.toFixed(2)}</b>
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCajaForm({ motivo: '', monto: '', responsable: activeUser });
+                setShowCajaModal(true);
+              }}
+              className="bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 shadow-md transition active:scale-95 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Registrar Salida / Gasto
+            </button>
+          </div>
+
+          {c.salidas.length === 0 ? (
+            <div className="text-center text-xs text-slate-400 py-6 bg-slate-50 rounded-xl">
+              Sin salidas de caja chica hoy.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {c.salidas.map((s) => (
+                <div key={s.id} className="py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 truncate">{s.motivo}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {s.tsMs
+                        ? new Date(s.tsMs).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+                        : ''}{' '}
+                      • {s.responsable}
+                    </div>
+                  </div>
+                  <div className="font-mono font-black text-sm text-red-600 whitespace-nowrap">
+                    − S/ {(Number(s.monto) || 0).toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCajaModal = () => {
+    if (!showCajaModal) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="bg-white rounded-3xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-[#0F172A] text-white flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-amber-400" />
+              <h3 className="font-extrabold text-sm">Registrar Salida de Caja Chica</h3>
+            </div>
+            <button
+              onClick={() => setShowCajaModal(false)}
+              className="p-1 rounded-full bg-white/10 hover:bg-white/20 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <form onSubmit={handleRegisterCajaSalida} className="p-5 space-y-3.5 bg-slate-50">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Motivo *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Ej. Pago de hielo, compras menores"
+                value={cajaForm.motivo}
+                onChange={(e) => setCajaForm({ ...cajaForm, motivo: e.target.value })}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Monto (S/) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  inputMode="decimal"
+                  value={cajaForm.monto}
+                  onChange={(e) => setCajaForm({ ...cajaForm, monto: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-base font-mono font-black focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Responsable
+                </label>
+                <input
+                  type="text"
+                  value={cajaForm.responsable}
+                  onChange={(e) => setCajaForm({ ...cajaForm, responsable: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-[#D97706] hover:bg-[#B45309] text-white rounded-xl font-black text-sm shadow-md transition active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Registrar Salida
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   // NAVEGACIÓN INFERIOR FIJA CON PERMISOS POR ROL
   const renderBottomNav = () => {
     // Definición de pestañas
@@ -3001,6 +4253,7 @@ export default function LanchitaPOS() {
       { id: 'produccion', label: 'Producción', icon: Flame, roles: ['admin', 'cocina_barra'] },
       { id: 'resumen', label: 'Resumen', icon: BarChart3, roles: ['admin', 'cocina_barra'] },
       { id: 'historial', label: 'Historial', icon: Calendar, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'caja', label: 'Caja', icon: Wallet, roles: ['admin'] },
       { id: 'admin', label: 'Admin', icon: Settings, roles: ['admin'] },
     ];
 
@@ -3012,6 +4265,7 @@ export default function LanchitaPOS() {
         setActiveTab(tab.id);
       } else {
         // Si no tiene permiso pero pulsa Admin o Producción, solicita PIN de Don Marco
+        setPendingTab(tab.id);
         setShowAdminUnlockModal(true);
         setAdminPinInput('');
         setAdminPinError('');
@@ -3020,7 +4274,7 @@ export default function LanchitaPOS() {
 
     return (
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A] text-slate-400 border-t border-slate-800 px-1 py-1 shadow-2xl">
-        <div className="max-w-md mx-auto grid grid-cols-6 gap-0.5">
+        <div className="max-w-lg mx-auto grid grid-cols-7 gap-0.5">
           {allTabs.map((tab) => {
             const IconComponent = tab.icon;
             const isActive = activeTab === tab.id;
@@ -3429,6 +4683,7 @@ export default function LanchitaPOS() {
         {activeTab === 'produccion' && renderProduccionTab()}
         {activeTab === 'resumen' && renderResumenTab()}
         {activeTab === 'historial' && renderHistorialTab()}
+        {activeTab === 'caja' && renderCajaTab()}
         {activeTab === 'admin' && renderAdminTab()}
       </main>
 
@@ -3436,6 +4691,10 @@ export default function LanchitaPOS() {
       {renderAuthModal()}
       {renderAdminUnlockModal()}
       {renderPayModal()}
+      {renderTablesModal()}
+      {renderKardexModal()}
+      {renderCajaModal()}
+      {renderStockPinModal()}
       {renderNewSupplyModal()}
       {renderEditSupplyModal()}
       {renderRestockModal()}

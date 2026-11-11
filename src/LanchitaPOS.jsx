@@ -45,7 +45,11 @@ import {
   LogOut,
   ArrowLeft,
   KeyRound,
-  ShieldAlert
+  ShieldAlert,
+  Coins,
+  FileSpreadsheet,
+  FileText,
+  ArrowRightLeft
 } from 'lucide-react';
 
 // Firebase Firestore Imports
@@ -65,6 +69,12 @@ import {
   deleteDoc
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase';
+
+// Vistas Modulares ERP Restorant La Lanchita
+import HistorialCajaView from './views/HistorialCajaView';
+import KardexView from './views/KardexView';
+import HistorialVentasView from './views/HistorialVentasView';
+import CierreCajaView from './views/CierreCajaView';
 
 // =========================================================================
 // 1. SEMILLA INICIAL EXACTA DE INSUMOS (CON IDS FIJOS Y STOCK BASE)
@@ -600,6 +610,16 @@ const loadLocal = (key, fallback) => {
 // Perfiles del Sistema y Roles
 export const PROFILES = [
   {
+    id: 'cynthia_admin',
+    name: 'Cynthia (Admin)',
+    role: 'admin',
+    label: 'Administradora General',
+    icon: '👑',
+    pin: '1234',
+    badge: 'Control Total',
+    color: 'from-rose-500/20 to-rose-500/5 border-rose-400 text-rose-950'
+  },
+  {
     id: 'don_marco',
     name: 'Don Marco',
     role: 'admin',
@@ -768,8 +788,11 @@ export default function LanchitaPOS() {
   const [stockPinError, setStockPinError] = useState('');
   const pendingStockActionRef = useRef(null);
 
-  // Flujo de caja
+  // Flujo de caja & Movimientos Financieros
   const [cajaEntries, setCajaEntries] = useState(() => loadLocal('lanchita_caja', []));
+  const [movimientosCaja, setMovimientosCaja] = useState(() => loadLocal('lanchita_movimientos_caja', []));
+  const [kardexMovimientos, setKardexMovimientos] = useState(() => loadLocal('lanchita_kardex_inventario', []));
+  const [cierresCaja, setCierresCaja] = useState(() => loadLocal('lanchita_cierres_caja', []));
   const [showCajaModal, setShowCajaModal] = useState(false);
   const [cajaForm, setCajaForm] = useState({ motivo: '', monto: '', responsable: '' });
   const [pendingTab, setPendingTab] = useState(null);
@@ -1037,6 +1060,18 @@ export default function LanchitaPOS() {
     localStorage.setItem('lanchita_caja', JSON.stringify(cajaEntries.slice(0, 500)));
   }, [cajaEntries]);
 
+  useEffect(() => {
+    localStorage.setItem('lanchita_movimientos_caja', JSON.stringify(movimientosCaja.slice(0, 500)));
+  }, [movimientosCaja]);
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_kardex_inventario', JSON.stringify(kardexMovimientos.slice(0, 500)));
+  }, [kardexMovimientos]);
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_cierres_caja', JSON.stringify(cierresCaja.slice(0, 200)));
+  }, [cierresCaja]);
+
   // Reloj para el "tiempo abierta" de cada mesa
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 30000);
@@ -1124,6 +1159,75 @@ export default function LanchitaPOS() {
       (error) => console.warn('Error en listener de caja chica:', error)
     );
     return () => unsubscribe();
+  }, []);
+
+  // Movimientos de Caja en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    try {
+      const q = query(collection(db, 'movimientos_caja'), orderBy('fecha', 'desc'), limit(500));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          setMovimientosCaja(
+            snapshot.docs.map((d) => {
+              const data = d.data();
+              return { id: d.id, ...data, fecha: null, tsMs: tsToMs(data) };
+            })
+          );
+        },
+        (error) => console.warn('Error en listener de movimientos_caja:', error)
+      );
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Fallback movimientos_caja:', e);
+    }
+  }, []);
+
+  // Kardex de Inventario en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    try {
+      const q = query(collection(db, 'kardex_inventario'), orderBy('fecha', 'desc'), limit(500));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          setKardexMovimientos(
+            snapshot.docs.map((d) => {
+              const data = d.data();
+              return { id: d.id, ...data, fecha: null, tsMs: tsToMs(data) };
+            })
+          );
+        },
+        (error) => console.warn('Error en listener de kardex_inventario:', error)
+      );
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Fallback kardex_inventario:', e);
+    }
+  }, []);
+
+  // Cierres de Caja en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+    try {
+      const q = query(collection(db, 'cierres_caja'), orderBy('fecha', 'desc'), limit(200));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          setCierresCaja(
+            snapshot.docs.map((d) => {
+              const data = d.data();
+              return { id: d.id, ...data, fecha: null, tsMs: tsToMs(data) };
+            })
+          );
+        },
+        (error) => console.warn('Error en listener de cierres_caja:', error)
+      );
+      return () => unsubscribe();
+    } catch (e) {
+      console.warn('Fallback cierres_caja:', e);
+    }
   }, []);
 
   const currentSplit = () =>
@@ -1366,7 +1470,26 @@ export default function LanchitaPOS() {
 
         // 1. Crear documento de comanda en colección 'ventas'
         const newVentaRef = doc(collection(db, 'ventas'));
-        batch.set(newVentaRef, newSaleData);
+        const ticketNum = `TK-${Date.now().toString().slice(-6)}`;
+        batch.set(newVentaRef, {
+          ...newSaleData,
+          estado: 'Cobrada',
+          nroComprobante: ticketNum
+        });
+
+        // 1.1 Registrar en 'movimientos_caja' la venta financiera
+        const movCajaRef = doc(collection(db, 'movimientos_caja'));
+        batch.set(movCajaRef, {
+          fecha: serverTimestamp(),
+          timestamp: Date.now(),
+          tipo: 'INGRESO_VENTA',
+          categoria: 'Ventas Comanda',
+          detalle: `Comanda ${selectedTable} (Ticket #${ticketNum})`,
+          monto: round2(totalOrderAmount),
+          metodoPago,
+          usuario: activeUser,
+          estacionId: activeArea
+        });
 
         // 2. Calcular merma según ingredientes configurados o venta directa
         const supplyDeductions = {};
@@ -1379,11 +1502,30 @@ export default function LanchitaPOS() {
           }
         });
 
-        // 3. Descontar en 'insumos' con increment(-cantidad)
+        // 3. Descontar en 'insumos' con increment(-cantidad) y registrar en kardex_inventario
         Object.entries(supplyDeductions).forEach(([supplyId, deduction]) => {
           const supplyRef = doc(db, 'insumos', supplyId);
           batch.update(supplyRef, {
             stock: increment(-deduction),
+          });
+
+          const sup = supplies.find((s) => s.id === supplyId);
+          const stockAnt = Number(sup?.stock) || 0;
+          const kRef = doc(collection(db, 'kardex_inventario'));
+          batch.set(kRef, {
+            timestamp: Date.now(),
+            fecha: serverTimestamp(),
+            productoId: supplyId,
+            nombreProducto: sup?.nombre || supplyId,
+            tipo: 'VENTA_POS',
+            origen: activeArea === 'terraza' ? 'stock_piso2' : 'stock_cocina',
+            destino: 'Consumo / Venta',
+            cantidadMovida: round2(deduction),
+            unidad: sup?.unidad || 'unid',
+            stockAnterior: stockAnt,
+            stockNuevo: Math.max(0, round2(stockAnt - deduction)),
+            usuario: activeUser,
+            motivo: `Despacho comanda ${selectedTable} (${ticketNum})`
           });
         });
 
@@ -1442,6 +1584,248 @@ export default function LanchitaPOS() {
       showToast('error', `Error al registrar en Firestore: ${error.message || 'Error de red'}`);
     } finally {
       setIsProcessingSale(false);
+    }
+  };
+
+  // =========================================================================
+  // HANDLERS ERP: ANULACIÓN, EGRESOS, KARDEX & CIERRES
+  // =========================================================================
+
+  // Anulación de Venta (Exclusivo ADMIN con devolución automática a Kardex)
+  const handleAnularVenta = async (saleToAnnull, motivo, adminName) => {
+    if (!saleToAnnull) return;
+
+    try {
+      if (isFirebaseConfigured) {
+        const batch = writeBatch(db);
+
+        // 1. Marcar venta como anulada
+        const ventaRef = doc(db, 'ventas', saleToAnnull.id);
+        batch.update(ventaRef, {
+          estado: 'Anulada',
+          motivoAnulacion: motivo,
+          anuladoPor: adminName || activeUser,
+          fechaAnulacion: serverTimestamp(),
+        });
+
+        // 2. Devolver insumos al stock físico y registrar reverso en kardex_inventario
+        (saleToAnnull.items || []).forEach((item) => {
+          const ings = item.ingredientes || item.ingredients || [];
+          if (ings.length > 0) {
+            ings.forEach((ing) => {
+              const qtyRetorno = ing.qty * (item.qty || 1);
+              const supRef = doc(db, 'insumos', ing.supplyId);
+              batch.update(supRef, {
+                stock: increment(qtyRetorno)
+              });
+
+              const sup = supplies.find((s) => s.id === ing.supplyId);
+              const stockAnt = Number(sup?.stock) || 0;
+              const kRef = doc(collection(db, 'kardex_inventario'));
+              batch.set(kRef, {
+                timestamp: Date.now(),
+                fecha: serverTimestamp(),
+                productoId: ing.supplyId,
+                nombreProducto: sup?.nombre || ing.supplyId,
+                tipo: 'ENTRADA_COMPRA',
+                origen: 'Reverso Anulación',
+                destino: saleToAnnull.area === 'terraza' ? 'stock_piso2' : 'stock_cocina',
+                cantidadMovida: round2(qtyRetorno),
+                unidad: sup?.unidad || 'unid',
+                stockAnterior: stockAnt,
+                stockNuevo: round2(stockAnt + qtyRetorno),
+                usuario: adminName || activeUser,
+                motivo: `Reverso por Anulación Comanda ${saleToAnnull.id}: ${motivo}`
+              });
+            });
+          }
+        });
+
+        // 3. Si fue en efectivo, registrar egreso en movimientos_caja para cuadre
+        const met = (saleToAnnull.metodoPago || '').toLowerCase();
+        const hasCash = met === 'efectivo' || (saleToAnnull.pagos && saleToAnnull.pagos.some((p) => p.metodo === 'efectivo'));
+        if (hasCash) {
+          const cashAmount = saleToAnnull.pagos
+            ? saleToAnnull.pagos.filter((p) => p.metodo === 'efectivo').reduce((a, b) => a + Number(b.monto || 0), 0)
+            : Number(saleToAnnull.total || 0);
+
+          if (cashAmount > 0) {
+            const cajaRef = doc(collection(db, 'movimientos_caja'));
+            batch.set(cajaRef, {
+              fecha: serverTimestamp(),
+              timestamp: Date.now(),
+              tipo: 'EGRESO_GASTO',
+              categoria: 'Devolución / Anulación Venta',
+              detalle: `Devolución por anulación comanda ${saleToAnnull.id} (${motivo})`,
+              monto: round2(cashAmount),
+              metodoPago: 'efectivo',
+              usuario: adminName || activeUser,
+              estacionId: saleToAnnull.area || activeArea
+            });
+          }
+        }
+
+        await batch.commit();
+      } else {
+        // Modo local
+        setSalesHistory((prev) =>
+          prev.map((s) =>
+            s.id === saleToAnnull.id
+              ? {
+                  ...s,
+                  estado: 'Anulada',
+                  motivoAnulacion: motivo,
+                  anuladoPor: adminName || activeUser
+                }
+              : s
+          )
+        );
+
+        setSupplies((prev) =>
+          prev.map((sup) => {
+            let returnQty = 0;
+            (saleToAnnull.items || []).forEach((it) => {
+              (it.ingredientes || it.ingredients || []).forEach((ing) => {
+                if (ing.supplyId === sup.id) returnQty += ing.qty * (it.qty || 1);
+              });
+            });
+            return returnQty > 0 ? { ...sup, stock: sup.stock + returnQty } : sup;
+          })
+        );
+      }
+    } catch (err) {
+      console.error('Error al anular comanda:', err);
+      throw err;
+    }
+  };
+
+  // Nuevo Egreso en Flujo de Caja
+  const handleNuevoEgresoCaja = async (nuevoEgreso) => {
+    try {
+      if (isFirebaseConfigured) {
+        await addDoc(collection(db, 'movimientos_caja'), {
+          ...nuevoEgreso,
+          fecha: serverTimestamp()
+        });
+        await addDoc(collection(db, 'caja_chica'), {
+          tipo: 'SALIDA',
+          motivo: nuevoEgreso.detalle,
+          monto: nuevoEgreso.monto,
+          responsable: nuevoEgreso.usuario,
+          area: nuevoEgreso.estacionId,
+          timestamp: nuevoEgreso.timestamp,
+          fecha: serverTimestamp()
+        });
+      } else {
+        const localEntry = {
+          id: `caja_${Date.now()}`,
+          ...nuevoEgreso,
+          tsMs: nuevoEgreso.timestamp
+        };
+        setMovimientosCaja((prev) => [localEntry, ...prev]);
+        setCajaEntries((prev) => [
+          {
+            id: localEntry.id,
+            tipo: 'SALIDA',
+            motivo: nuevoEgreso.detalle,
+            monto: nuevoEgreso.monto,
+            responsable: nuevoEgreso.usuario,
+            area: nuevoEgreso.estacionId,
+            tsMs: nuevoEgreso.timestamp
+          },
+          ...prev
+        ]);
+      }
+    } catch (err) {
+      console.error('Error al guardar egreso de caja:', err);
+      throw err;
+    }
+  };
+
+  // Nuevo Movimiento en Kardex
+  const handleRegistrarKardex = async (nuevoMov) => {
+    try {
+      if (isFirebaseConfigured) {
+        const batch = writeBatch(db);
+        const kRef = doc(collection(db, 'kardex_inventario'));
+        batch.set(kRef, {
+          ...nuevoMov,
+          fecha: serverTimestamp()
+        });
+
+        const supRef = doc(db, 'insumos', nuevoMov.productoId);
+        const delta = nuevoMov.stockNuevo - nuevoMov.stockAnterior;
+        if (delta !== 0) {
+          batch.update(supRef, {
+            stock: increment(delta)
+          });
+        }
+        await batch.commit();
+      } else {
+        const localMov = {
+          id: `kardex_${Date.now()}`,
+          ...nuevoMov,
+          tsMs: nuevoMov.timestamp
+        };
+        setKardexMovimientos((prev) => [localMov, ...prev]);
+        setSupplies((prev) =>
+          prev.map((s) => (s.id === nuevoMov.productoId ? { ...s, stock: nuevoMov.stockNuevo } : s))
+        );
+      }
+    } catch (err) {
+      console.error('Error al guardar en kardex:', err);
+      throw err;
+    }
+  };
+
+  // Guardar Cierre de Caja
+  const handleGuardarCierre = async (nuevoCierre) => {
+    try {
+      if (isFirebaseConfigured) {
+        const batch = writeBatch(db);
+        const cRef = doc(collection(db, 'cierres_caja'));
+        batch.set(cRef, {
+          ...nuevoCierre,
+          fecha: serverTimestamp()
+        });
+
+        const mRef = doc(collection(db, 'movimientos_caja'));
+        batch.set(mRef, {
+          fecha: serverTimestamp(),
+          timestamp: Date.now(),
+          tipo: 'CIERRE',
+          categoria: 'Cierre Diario',
+          detalle: `Cierre Arqueo ${nuevoCierre.turno} - Resp: ${nuevoCierre.responsable}`,
+          monto: nuevoCierre.totalEfectivo,
+          metodoPago: 'efectivo',
+          usuario: nuevoCierre.responsable,
+          estacionId: nuevoCierre.estacionId
+        });
+
+        await batch.commit();
+      } else {
+        const localCierre = {
+          id: `cierre_${Date.now()}`,
+          ...nuevoCierre,
+          tsMs: nuevoCierre.timestamp
+        };
+        setCierresCaja((prev) => [localCierre, ...prev]);
+        const localMov = {
+          id: `mov_cierre_${Date.now()}`,
+          tipo: 'CIERRE',
+          categoria: 'Cierre Diario',
+          detalle: `Cierre Arqueo ${nuevoCierre.turno}`,
+          monto: nuevoCierre.totalEfectivo,
+          metodoPago: 'efectivo',
+          usuario: nuevoCierre.responsable,
+          estacionId: nuevoCierre.estacionId,
+          tsMs: nuevoCierre.timestamp
+        };
+        setMovimientosCaja((prev) => [localMov, ...prev]);
+      }
+    } catch (err) {
+      console.error('Error al guardar cierre de caja:', err);
+      throw err;
     }
   };
 
@@ -2082,6 +2466,122 @@ export default function LanchitaPOS() {
               <LogOut className="w-3.5 h-3.5 text-red-400" />
               <span className="hidden md:inline">Salir</span>
             </button>
+          </div>
+        </div>
+
+        {/* Barra de Módulos ERP Restorant La Lanchita */}
+        <div className="bg-[#1E293B] border-t border-slate-700/80 px-3 py-1.5 overflow-x-auto select-none shadow-inner">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 overflow-x-auto py-0.5 text-xs font-bold">
+              {/* Ventas */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('ventas')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'ventas' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>🛒</span>
+                <span>POS Ventas</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('registro_ventas')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'registro_ventas' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>📑</span>
+                <span>Registro Ventas</span>
+              </button>
+
+              <span className="text-slate-600 font-mono px-0.5">|</span>
+
+              {/* Logística */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('inventario')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'inventario' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>📦</span>
+                <span>Insumos</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('kardex')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'kardex' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>🔄</span>
+                <span>Kardex Multi-Zona</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('produccion')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'produccion' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>🔥</span>
+                <span>Producción</span>
+              </button>
+
+              <span className="text-slate-600 font-mono px-0.5">|</span>
+
+              {/* Finanzas */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('caja_flujo')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'caja_flujo' || activeTab === 'caja' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>💵</span>
+                <span>Gastos / Flujo Caja</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('cierres')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'cierres' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>🪙</span>
+                <span>Arqueos &amp; Cierres</span>
+              </button>
+
+              <span className="text-slate-600 font-mono px-0.5">|</span>
+
+              {/* Admin */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('resumen')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'resumen' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>📊</span>
+                <span>Resumen</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('admin')}
+                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                  activeTab === 'admin' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <span>⚙️</span>
+                <span>Admin</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -4246,14 +4746,14 @@ export default function LanchitaPOS() {
 
   // NAVEGACIÓN INFERIOR FIJA CON PERMISOS POR ROL
   const renderBottomNav = () => {
-    // Definición de pestañas
+    // Definición de pestañas fijas de mostrador
     const allTabs = [
-      { id: 'ventas', label: 'Ventas', icon: ShoppingBag, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'inventario', label: 'Inventario', icon: Package, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'produccion', label: 'Producción', icon: Flame, roles: ['admin', 'cocina_barra'] },
-      { id: 'resumen', label: 'Resumen', icon: BarChart3, roles: ['admin', 'cocina_barra'] },
-      { id: 'historial', label: 'Historial', icon: Calendar, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'caja', label: 'Caja', icon: Wallet, roles: ['admin'] },
+      { id: 'ventas', label: 'POS', icon: ShoppingBag, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'registro_ventas', label: 'Ventas', icon: Receipt, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'kardex', label: 'Kardex', icon: Layers, roles: ['admin', 'cocina_barra'] },
+      { id: 'inventario', label: 'Stock', icon: Package, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+      { id: 'caja_flujo', label: 'Flujo', icon: Wallet, roles: ['admin'] },
+      { id: 'cierres', label: 'Cierres', icon: Coins, roles: ['admin'] },
       { id: 'admin', label: 'Admin', icon: Settings, roles: ['admin'] },
     ];
 
@@ -4679,11 +5179,61 @@ export default function LanchitaPOS() {
 
       <main className="flex-1 max-w-4xl w-full mx-auto px-3 sm:px-4">
         {activeTab === 'ventas' && renderVentasTab()}
+        {activeTab === 'registro_ventas' && (
+          <HistorialVentasView
+            sales={salesHistory}
+            onAnularVenta={handleAnularVenta}
+            onVerTicket={(sale) => setReceiptModal(sale)}
+            authSession={authSession}
+            isFirestoreOnline={isFirestoreOnline}
+            showToast={showToast}
+          />
+        )}
         {activeTab === 'inventario' && renderInventarioTab()}
+        {activeTab === 'kardex' && (
+          <KardexView
+            kardexMovimientos={kardexMovimientos}
+            supplies={supplies}
+            onRegistrarMovimiento={handleRegistrarKardex}
+            activeUser={activeUser}
+            isFirestoreOnline={isFirestoreOnline}
+            showToast={showToast}
+          />
+        )}
         {activeTab === 'produccion' && renderProduccionTab()}
+        {(activeTab === 'caja_flujo' || activeTab === 'caja') && (
+          <HistorialCajaView
+            movimientos={movimientosCaja}
+            onNuevoEgreso={handleNuevoEgresoCaja}
+            activeUser={activeUser}
+            activeArea={activeArea}
+            isFirestoreOnline={isFirestoreOnline}
+            showToast={showToast}
+          />
+        )}
+        {activeTab === 'cierres' && (
+          <CierreCajaView
+            cierres={cierresCaja}
+            dailySummary={dailySummary}
+            cajaSummary={cajaSummary}
+            onGuardarCierre={handleGuardarCierre}
+            activeUser={activeUser}
+            activeArea={activeArea}
+            isFirestoreOnline={isFirestoreOnline}
+            showToast={showToast}
+          />
+        )}
         {activeTab === 'resumen' && renderResumenTab()}
-        {activeTab === 'historial' && renderHistorialTab()}
-        {activeTab === 'caja' && renderCajaTab()}
+        {activeTab === 'historial' && (
+          <HistorialVentasView
+            sales={salesHistory}
+            onAnularVenta={handleAnularVenta}
+            onVerTicket={(sale) => setReceiptModal(sale)}
+            authSession={authSession}
+            isFirestoreOnline={isFirestoreOnline}
+            showToast={showToast}
+          />
+        )}
         {activeTab === 'admin' && renderAdminTab()}
       </main>
 

@@ -28,3 +28,44 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Reglas de Impresión Térmica (80mm / 58mm) y Reporte Cuaderno Contable */
+@media print {
+  @page {
+    margin: 4mm;
+    size: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Ocultar elementos de navegación e interfaz durante la impresión */
+  header,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* El modal o contenedor impreso se adapta al rollo térmico */
+  .fixed {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .shadow-2xl,
+  .shadow-md,
+  .shadow-xs {
+    box-shadow: none !important;
+  }
+
+  .rounded-3xl,
+  .rounded-2xl {
+    border-radius: 0 !important;
+  }
+}

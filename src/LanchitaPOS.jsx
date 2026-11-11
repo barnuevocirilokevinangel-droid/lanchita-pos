@@ -49,7 +49,8 @@ import {
   Coins,
   FileSpreadsheet,
   FileText,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Search
 } from 'lucide-react';
 
 // Firebase Firestore Imports
@@ -559,9 +560,28 @@ const slugify = (s) =>
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '');
+const normalizeText = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
 const mesaOf = (name) => String(name).split(' - ')[0];
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const normMethod = (m) => (m === 'yape' || m === 'yape_plin' ? 'yape' : m);
+
+// Módulos ERP Restorant de Navegación Unificada
+const ERP_NAV_TABS = [
+  { id: 'ventas', label: 'POS Ventas', emoji: '🛒', roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+  { id: 'registro_ventas', label: 'Registro Ventas', emoji: '📑', roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+  { id: 'inventario', label: 'Insumos', emoji: '📦', roles: ['admin', 'cocina_barra', 'mozo_caja'] },
+  { id: 'kardex', label: 'Kardex Multi-Zona', emoji: '🔄', roles: ['admin', 'cocina_barra'] },
+  { id: 'produccion', label: 'Producción', emoji: '🔥', roles: ['admin', 'cocina_barra'] },
+  { id: 'caja_flujo', label: 'Flujo de Caja', emoji: '💵', roles: ['admin', 'mozo_caja'], altIds: ['caja'] },
+  { id: 'cierres', label: 'Arqueos & Cierres', emoji: '🪙', roles: ['admin'] },
+  { id: 'resumen', label: 'Resumen', emoji: '📊', roles: ['admin'] },
+  { id: 'admin', label: 'Admin', emoji: '⚙️', roles: ['admin'] },
+];
 
 const cartTotal = (cart) =>
   Object.entries(cart || {}).reduce((acc, [id, qty]) => {
@@ -813,6 +833,82 @@ export default function LanchitaPOS() {
     tragos: true,
     bebidas: true,
   });
+
+  // Buscadores instantáneos en POS e Inventario
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [supplySearchTerm, setSupplySearchTerm] = useState('');
+  const posSearchInputRef = useRef(null);
+  const supplySearchInputRef = useRef(null);
+
+  // Atajo de teclado '/' para enfocar el buscador de POS Ventas y Esc para limpiar
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (activeTab !== 'ventas') return;
+      const target = e.target;
+      const isInput =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+
+      if (e.key === '/' && !isInput) {
+        e.preventDefault();
+        posSearchInputRef.current?.focus();
+      }
+
+      if (e.key === 'Escape' && target === posSearchInputRef.current) {
+        setProductSearchTerm('');
+        posSearchInputRef.current?.blur();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab]);
+
+  // Filtrado reactivo de platos para POS con useMemo (insensible a mayúsculas y acentos)
+  const normalizedProductSearch = useMemo(
+    () => normalizeText(productSearchTerm),
+    [productSearchTerm]
+  );
+
+  const filteredProducts = useMemo(() => {
+    if (!normalizedProductSearch) return INITIAL_PRODUCTS;
+    return INITIAL_PRODUCTS.filter((prod) => {
+      const nameNorm = normalizeText(prod.name);
+      const catNorm = normalizeText(prod.category);
+      const ingredientsNorm = (prod.ingredients || [])
+        .map((i) => normalizeText(i.label))
+        .join(' ');
+      return (
+        nameNorm.includes(normalizedProductSearch) ||
+        catNorm.includes(normalizedProductSearch) ||
+        ingredientsNorm.includes(normalizedProductSearch)
+      );
+    });
+  }, [normalizedProductSearch]);
+
+  // Filtrado reactivo de insumos para Inventario con useMemo (por nombre, código/id, categoría o unidad)
+  const normalizedSupplySearch = useMemo(
+    () => normalizeText(supplySearchTerm),
+    [supplySearchTerm]
+  );
+
+  const filteredSupplies = useMemo(() => {
+    if (!normalizedSupplySearch) return supplies;
+    return supplies.filter((s) => {
+      const nameNorm = normalizeText(s.nombre);
+      const idNorm = normalizeText(s.id);
+      const catNorm = normalizeText(s.categoria);
+      const unitNorm = normalizeText(s.unidad);
+      return (
+        nameNorm.includes(normalizedSupplySearch) ||
+        idNorm.includes(normalizedSupplySearch) ||
+        catNorm.includes(normalizedSupplySearch) ||
+        unitNorm.includes(normalizedSupplySearch)
+      );
+    });
+  }, [supplies, normalizedSupplySearch]);
 
   const showToast = (type, text) => {
     setToastMessage({ type, text });
@@ -2469,119 +2565,47 @@ export default function LanchitaPOS() {
           </div>
         </div>
 
-        {/* Barra de Módulos ERP Restorant La Lanchita */}
-        <div className="bg-[#1E293B] border-t border-slate-700/80 px-3 py-1.5 overflow-x-auto select-none shadow-inner">
-          <div className="max-w-4xl mx-auto flex items-center justify-between gap-1 sm:gap-2">
-            <div className="flex items-center gap-1 overflow-x-auto py-0.5 text-xs font-bold">
-              {/* Ventas */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('ventas')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'ventas' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>🛒</span>
-                <span>POS Ventas</span>
-              </button>
+        {/* Barra de Módulos ERP Restorant La Lanchita (Barra de Navegación Única) */}
+        <div className="bg-[#1E293B] border-t border-slate-700/80 px-2 sm:px-4 py-1.5 select-none shadow-inner">
+          <div className="max-w-4xl mx-auto flex items-center gap-1 sm:gap-1.5 overflow-x-auto py-0.5 text-xs no-scrollbar">
+            {ERP_NAV_TABS.map((tab) => {
+              const isActive = activeTab === tab.id || (tab.altIds && tab.altIds.includes(activeTab));
+              const userRole = authSession?.role || 'admin';
+              const isRestricted = !tab.roles.includes(userRole);
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('registro_ventas')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'registro_ventas' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>📑</span>
-                <span>Registro Ventas</span>
-              </button>
+              const handleNavClick = () => {
+                if (!isRestricted) {
+                  setActiveTab(tab.id);
+                } else {
+                  setPendingTab(tab.id);
+                  setShowAdminUnlockModal(true);
+                  setAdminPinInput('');
+                  setAdminPinError('');
+                }
+              };
 
-              <span className="text-slate-600 font-mono px-0.5">|</span>
-
-              {/* Logística */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('inventario')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'inventario' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>📦</span>
-                <span>Insumos</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('kardex')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'kardex' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>🔄</span>
-                <span>Kardex Multi-Zona</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('produccion')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'produccion' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>🔥</span>
-                <span>Producción</span>
-              </button>
-
-              <span className="text-slate-600 font-mono px-0.5">|</span>
-
-              {/* Finanzas */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('caja_flujo')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'caja_flujo' || activeTab === 'caja' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>💵</span>
-                <span>Gastos / Flujo Caja</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('cierres')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'cierres' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>🪙</span>
-                <span>Arqueos &amp; Cierres</span>
-              </button>
-
-              <span className="text-slate-600 font-mono px-0.5">|</span>
-
-              {/* Admin */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('resumen')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'resumen' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>📊</span>
-                <span>Resumen</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('admin')}
-                className={`px-2.5 py-1 rounded-lg transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
-                  activeTab === 'admin' ? 'bg-amber-500 text-slate-950 font-black shadow-xs' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <span>⚙️</span>
-                <span>Admin</span>
-              </button>
-            </div>
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={handleNavClick}
+                  className={`px-3 py-1.5 rounded-xl transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 text-xs flex-shrink-0 active:scale-95 ${
+                    isActive
+                      ? 'bg-amber-400 text-slate-950 font-black shadow-md border border-amber-300 ring-2 ring-amber-400/30'
+                      : isRestricted
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 font-medium opacity-75'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800 font-semibold'
+                  }`}
+                  title={isRestricted ? `${tab.label} (Requiere PIN de Administrador)` : tab.label}
+                >
+                  <span className="text-sm leading-none">{tab.emoji}</span>
+                  <span>{tab.label}</span>
+                  {isRestricted && (
+                    <Lock className="w-3 h-3 text-amber-400/80 ml-0.5 flex-shrink-0" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       </header>
@@ -2614,10 +2638,10 @@ export default function LanchitaPOS() {
     );
   };
 
-  // 1. PESTAÑA: VENTAS (VINCULACIÓN ESTRICTA DE INSUMOS)
+  // 1. PESTAÑA: VENTAS (VINCULACIÓN ESTRICTA DE INSUMOS Y BUSCADOR INSTANTÁNEO)
   const renderVentasTab = () => {
     return (
-      <div className="space-y-4 pb-32 pt-2">
+      <div className="space-y-4 pb-24 pt-2">
         <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-xs space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <button
@@ -2688,154 +2712,238 @@ export default function LanchitaPOS() {
           })()}
         </div>
 
-        <div className="space-y-3">
-          {CATEGORIES.map((cat) => {
-            const isOpen = openAccordions[cat.key];
-            const catProducts = INITIAL_PRODUCTS.filter((p) => p.category === cat.key);
-            const categoryOrderCount = catProducts.reduce(
-              (acc, p) => acc + (orderCart[p.id] || 0),
-              0
-            );
-
-            return (
-              <div
-                key={cat.key}
-                className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all duration-200"
-              >
+        {/* BUSCADOR INSTANTÁNEO EN POS / VENTAS */}
+        <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="relative flex items-center bg-slate-50 border-2 border-slate-200 focus-within:border-amber-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 rounded-xl transition-all">
+            <div className="pl-3 pr-2 text-slate-400 flex items-center">
+              <Search className="w-4 h-4 text-amber-600" />
+            </div>
+            <input
+              ref={posSearchInputRef}
+              type="text"
+              value={productSearchTerm}
+              onChange={(e) => setProductSearchTerm(e.target.value)}
+              placeholder="🔍 Buscar plato o bebida (ej. ceviche mixto, pilsen, arroz)..."
+              className="w-full bg-transparent py-2.5 pr-2 text-xs sm:text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+            />
+            <div className="flex items-center gap-1 pr-2.5">
+              {productSearchTerm ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    setOpenAccordions((prev) => ({ ...prev, [cat.key]: !prev[cat.key] }))
-                  }
-                  className={`w-full px-4 py-3 flex items-center justify-between text-left transition select-none cursor-pointer border-b ${
-                    cat.headerBg
-                  }`}
+                  onClick={() => {
+                    setProductSearchTerm('');
+                    posSearchInputRef.current?.focus();
+                  }}
+                  className="w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
+                  title="Limpiar búsqueda (Esc)"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-2xl drop-shadow-xs">{cat.emoji}</span>
-                    <div>
-                      <h3 className="font-extrabold text-sm sm:text-base leading-tight">
-                        {cat.title}
-                      </h3>
-                      <span className="text-[11px] opacity-80 font-medium">
-                        {catProducts.length} opciones en carta
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {categoryOrderCount > 0 && (
-                      <span className="bg-[#0F172A] text-amber-400 font-black text-xs px-2.5 py-0.5 rounded-full shadow-xs">
-                        {categoryOrderCount} en pedido
-                      </span>
-                    )}
-                    <div className="w-7 h-7 rounded-full bg-white/70 flex items-center justify-center text-slate-700 shadow-xs">
-                      {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                    </div>
-                  </div>
+                  <X className="w-3.5 h-3.5" />
                 </button>
+              ) : (
+                <span
+                  onClick={() => posSearchInputRef.current?.focus()}
+                  className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-mono font-bold text-slate-500 shadow-xs cursor-pointer"
+                  title="Presiona '/' para buscar"
+                >
+                  /
+                </span>
+              )}
+            </div>
+          </div>
 
-                {isOpen && (
-                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50/50">
-                    {catProducts.map((prod) => {
-                      const qty = orderCart[prod.id] || 0;
-                      const availability = checkProductAvailability(prod);
-                      const isBlocked = !availability.canAdd;
-
-                      return (
-                        <div
-                          key={prod.id}
-                          className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
-                            qty > 0
-                              ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
-                              : 'bg-white border-slate-200'
-                          } ${isBlocked && qty === 0 ? 'opacity-70 bg-slate-100' : ''}`}
-                        >
-                          <div>
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="font-bold text-slate-900 text-sm leading-snug">
-                                {prod.name}
-                              </h4>
-                              <span className="text-base font-black text-[#0F172A] whitespace-nowrap font-mono">
-                                S/ {prod.price.toFixed(2)}
-                              </span>
-                            </div>
-
-                            {/* Desglose: INGREDIENTES POR UNIDAD */}
-                            <div className="mt-2">
-                              <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
-                                Insumos por plato:
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {(prod.ingredients || []).map((ing, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200 font-medium"
-                                  >
-                                    {ing.label}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* Alerta de bloqueo inteligente */}
-                            {isBlocked && (
-                              <div className="mt-2 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-md flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
-                                <span>Agotado por falta de insumos ({availability.missingSupplyName})</span>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
-                            <span className="text-[11px] text-slate-500 font-medium">
-                              {qty > 0 ? `Subtotal: S/ ${(prod.price * qty).toFixed(2)}` : 'Añadir'}
-                            </span>
-
-                            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                              <button
-                                type="button"
-                                disabled={qty === 0}
-                                onClick={() => handleRemoveProduct(prod.id)}
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition active:scale-90 ${
-                                  qty > 0
-                                    ? 'bg-white text-slate-800 shadow-xs hover:bg-slate-200 cursor-pointer'
-                                    : 'text-slate-300 cursor-not-allowed'
-                                }`}
-                              >
-                                <Minus className="w-4 h-4" />
-                              </button>
-
-                              <span className="w-6 text-center text-sm font-black text-slate-900 font-mono">
-                                {qty}
-                              </span>
-
-                              <button
-                                type="button"
-                                disabled={isBlocked}
-                                onClick={() => handleAddProduct(prod)}
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition active:scale-90 ${
-                                  isBlocked
-                                    ? 'opacity-50 cursor-not-allowed bg-slate-300 text-slate-500'
-                                    : 'bg-[#0F172A] text-white shadow-xs hover:bg-slate-800 cursor-pointer'
-                                }`}
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {normalizedProductSearch && (
+            <div className="mt-2 flex items-center justify-between text-xs px-1">
+              <span className="font-bold text-slate-700">
+                {filteredProducts.length === 1
+                  ? '1 plato o bebida encontrado'
+                  : `${filteredProducts.length} platos o bebidas encontrados`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setProductSearchTerm('')}
+                className="text-amber-700 hover:text-amber-800 font-bold underline cursor-pointer text-[11px]"
+              >
+                Limpiar filtro
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* LISTADO DE CATEGORÍAS Y PLATOS */}
+        {normalizedProductSearch && filteredProducts.length === 0 ? (
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-xs my-2">
+            <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <h3 className="text-sm font-bold text-slate-800">
+              No encontramos ningún plato o bebida
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              No hay opciones en la carta marina ni bebidas que coincidan con &ldquo;
+              <span className="text-slate-800 font-semibold">{productSearchTerm}</span>&rdquo;.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setProductSearchTerm('');
+                posSearchInputRef.current?.focus();
+              }}
+              className="mt-3.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              Limpiar búsqueda
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {CATEGORIES.map((cat) => {
+              const catProducts = filteredProducts.filter((p) => p.category === cat.key);
+              if (normalizedProductSearch && catProducts.length === 0) return null;
+              const isOpen = normalizedProductSearch ? true : openAccordions[cat.key];
+              const categoryOrderCount = catProducts.reduce(
+                (acc, p) => acc + (orderCart[p.id] || 0),
+                0
+              );
+
+              return (
+                <div
+                  key={cat.key}
+                  className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden transition-all duration-200"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenAccordions((prev) => ({ ...prev, [cat.key]: !prev[cat.key] }))
+                    }
+                    className={`w-full px-4 py-3 flex items-center justify-between text-left transition select-none cursor-pointer border-b ${
+                      cat.headerBg
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl drop-shadow-xs">{cat.emoji}</span>
+                      <div>
+                        <h3 className="font-extrabold text-sm sm:text-base leading-tight">
+                          {cat.title}
+                        </h3>
+                        <span className="text-[11px] opacity-80 font-medium">
+                          {normalizedProductSearch
+                            ? `${catProducts.length} ${catProducts.length === 1 ? 'coincidencia' : 'coincidencias'}`
+                            : `${catProducts.length} opciones en carta`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {categoryOrderCount > 0 && (
+                        <span className="bg-[#0F172A] text-amber-400 font-black text-xs px-2.5 py-0.5 rounded-full shadow-xs">
+                          {categoryOrderCount} en pedido
+                        </span>
+                      )}
+                      <div className="w-7 h-7 rounded-full bg-white/70 flex items-center justify-center text-slate-700 shadow-xs">
+                        {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50/50">
+                      {catProducts.map((prod) => {
+                        const qty = orderCart[prod.id] || 0;
+                        const availability = checkProductAvailability(prod);
+                        const isBlocked = !availability.canAdd;
+
+                        return (
+                          <div
+                            key={prod.id}
+                            className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between ${
+                              qty > 0
+                                ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300'
+                                : 'bg-white border-slate-200'
+                            } ${isBlocked && qty === 0 ? 'opacity-70 bg-slate-100' : ''}`}
+                          >
+                            <div>
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-bold text-slate-900 text-sm leading-snug">
+                                  {prod.name}
+                                </h4>
+                                <span className="text-base font-black text-[#0F172A] whitespace-nowrap font-mono">
+                                  S/ {prod.price.toFixed(2)}
+                                </span>
+                              </div>
+
+                              {/* Desglose: INGREDIENTES POR UNIDAD */}
+                              <div className="mt-2">
+                                <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+                                  Insumos por plato:
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {(prod.ingredients || []).map((ing, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200 font-medium"
+                                    >
+                                      {ing.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Alerta de bloqueo inteligente */}
+                              {isBlocked && (
+                                <div className="mt-2 text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                  <span>Agotado por falta de insumos ({availability.missingSupplyName})</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                              <span className="text-[11px] text-slate-500 font-medium">
+                                {qty > 0 ? `Subtotal: S/ ${(prod.price * qty).toFixed(2)}` : 'Añadir'}
+                              </span>
+
+                              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                                <button
+                                  type="button"
+                                  disabled={qty === 0}
+                                  onClick={() => handleRemoveProduct(prod.id)}
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition active:scale-90 ${
+                                    qty > 0
+                                      ? 'bg-white text-slate-800 shadow-xs hover:bg-slate-200 cursor-pointer'
+                                      : 'text-slate-300 cursor-not-allowed'
+                                  }`}
+                                >
+                                  <Minus className="w-4 h-4" />
+                                </button>
+
+                                <span className="w-6 text-center text-sm font-black text-slate-900 font-mono">
+                                  {qty}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  disabled={isBlocked}
+                                  onClick={() => handleAddProduct(prod)}
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center font-black transition active:scale-90 ${
+                                    isBlocked
+                                      ? 'opacity-50 cursor-not-allowed bg-slate-300 text-slate-500'
+                                      : 'bg-[#0F172A] text-white shadow-xs hover:bg-slate-800 cursor-pointer'
+                                  }`}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {totalOrderAmount > 0 && (
-          <div className="fixed bottom-20 left-0 right-0 z-30 px-4 max-w-md mx-auto pointer-events-auto">
+          <div className="fixed bottom-4 left-0 right-0 z-30 px-4 max-w-md mx-auto pointer-events-auto">
             <div className="bg-[#0F172A] text-white p-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-200">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center shadow">
@@ -2866,7 +2974,7 @@ export default function LanchitaPOS() {
     );
   };
 
-  // 2. PESTAÑA: INVENTARIO (CON BOTÓN DE SEMILLA INICIAL Y ACTUALIZACIÓN EN VIVO)
+  // 2. PESTAÑA: INVENTARIO (CON BOTÓN DE SEMILLA INICIAL Y BUSCADOR INSTANTÁNEO)
   const renderInventarioTab = () => {
     // Normalizador de categoría para agrupar insumos flexiblemente
     const matchesCategory = (supCat, catConfig) => {
@@ -2876,7 +2984,7 @@ export default function LanchitaPOS() {
     };
 
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         {/* CABECERA DE INVENTARIO */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -2961,6 +3069,57 @@ export default function LanchitaPOS() {
           </div>
         </div>
 
+        {/* BUSCADOR INSTANTÁNEO EN INSUMOS / INVENTARIO */}
+        {supplies.length > 0 && (
+          <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-xs">
+            <div className="relative flex items-center bg-slate-50 border-2 border-slate-200 focus-within:border-amber-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 rounded-xl transition-all">
+              <div className="pl-3 pr-2 text-slate-400 flex items-center">
+                <Search className="w-4 h-4 text-amber-600" />
+              </div>
+              <input
+                ref={supplySearchInputRef}
+                type="text"
+                value={supplySearchTerm}
+                onChange={(e) => setSupplySearchTerm(e.target.value)}
+                placeholder="🔍 Buscar insumo o producto por nombre o código (ej. perico, limón, pilsen)..."
+                className="w-full bg-transparent py-2.5 pr-2 text-xs sm:text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+              />
+              <div className="flex items-center gap-1 pr-2.5">
+                {supplySearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupplySearchTerm('');
+                      supplySearchInputRef.current?.focus();
+                    }}
+                    className="w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
+                    title="Limpiar búsqueda"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {normalizedSupplySearch && (
+              <div className="mt-2 flex items-center justify-between text-xs px-1">
+                <span className="font-bold text-slate-700">
+                  {filteredSupplies.length === 1
+                    ? '1 insumo encontrado'
+                    : `${filteredSupplies.length} insumos encontrados`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSupplySearchTerm('')}
+                  className="text-amber-700 hover:text-amber-800 font-bold underline cursor-pointer text-[11px]"
+                >
+                  Limpiar filtro
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* EMPTY STATE SI EL ALMACÉN ESTÁ VACÍO */}
         {supplies.length === 0 && (
           <div className="bg-white p-8 sm:p-12 rounded-3xl border-2 border-dashed border-slate-300 text-center shadow-xs max-w-lg mx-auto my-6 animate-in fade-in zoom-in-95 duration-200">
@@ -2997,10 +3156,34 @@ export default function LanchitaPOS() {
           </div>
         )}
 
+        {/* ESTADO VACÍO SI LA BÚSQUEDA NO DEVUELVE RESULTADOS */}
+        {supplies.length > 0 && filteredSupplies.length === 0 && (
+          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center shadow-xs my-2">
+            <Search className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <h3 className="text-sm font-bold text-slate-800">
+              No encontramos ningún insumo coincidente
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              No hay insumos registrados que coincidan con &ldquo;
+              <span className="text-slate-800 font-semibold">{supplySearchTerm}</span>&rdquo;.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSupplySearchTerm('');
+                supplySearchInputRef.current?.focus();
+              }}
+              className="mt-3.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+            >
+              Limpiar búsqueda
+            </button>
+          </div>
+        )}
+
         {/* LISTA DE INSUMOS CATEGORIZADA EN TIEMPO REAL */}
         {supplies.length > 0 &&
           INVENTORY_CATEGORIES.map((catConfig) => {
-            const catSupplies = supplies.filter((s) => matchesCategory(s.categoria, catConfig));
+            const catSupplies = filteredSupplies.filter((s) => matchesCategory(s.categoria, catConfig));
             if (catSupplies.length === 0) return null;
             const IconComponent = catConfig.icon;
 
@@ -3160,7 +3343,7 @@ export default function LanchitaPOS() {
   // 3. PESTAÑA: PRODUCCIÓN
   const renderProduccionTab = () => {
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <Flame className="w-5 h-5 text-amber-600" />
@@ -3251,7 +3434,7 @@ export default function LanchitaPOS() {
   // 4. PESTAÑA: RESUMEN (CIERRE DE CAJA DEL DÍA)
   const renderResumenTab = () => {
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         <div className="bg-gradient-to-br from-[#0F172A] to-[#1E293B] text-white rounded-3xl p-6 shadow-xl border border-slate-800 relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -3362,7 +3545,7 @@ export default function LanchitaPOS() {
   // 5. PESTAÑA: HISTORIAL
   const renderHistorialTab = () => {
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
             <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -3428,7 +3611,7 @@ export default function LanchitaPOS() {
   // 6. PESTAÑA: ADMIN
   const renderAdminTab = () => {
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <Settings className="w-5 h-5 text-slate-700" />
@@ -4563,7 +4746,7 @@ export default function LanchitaPOS() {
     const c = cajaSummary;
 
     return (
-      <div className="space-y-4 pb-28 pt-2">
+      <div className="space-y-4 pb-12 pt-2">
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
@@ -4744,73 +4927,8 @@ export default function LanchitaPOS() {
     );
   };
 
-  // NAVEGACIÓN INFERIOR FIJA CON PERMISOS POR ROL
-  const renderBottomNav = () => {
-    // Definición de pestañas fijas de mostrador
-    const allTabs = [
-      { id: 'ventas', label: 'POS', icon: ShoppingBag, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'registro_ventas', label: 'Ventas', icon: Receipt, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'kardex', label: 'Kardex', icon: Layers, roles: ['admin', 'cocina_barra'] },
-      { id: 'inventario', label: 'Stock', icon: Package, roles: ['admin', 'cocina_barra', 'mozo_caja'] },
-      { id: 'caja_flujo', label: 'Flujo', icon: Wallet, roles: ['admin'] },
-      { id: 'cierres', label: 'Cierres', icon: Coins, roles: ['admin'] },
-      { id: 'admin', label: 'Admin', icon: Settings, roles: ['admin'] },
-    ];
-
-    const handleTabClick = (tab) => {
-      const userRole = authSession?.role || 'admin';
-      const hasPermission = tab.roles.includes(userRole);
-
-      if (hasPermission) {
-        setActiveTab(tab.id);
-      } else {
-        // Si no tiene permiso pero pulsa Admin o Producción, solicita PIN de Don Marco
-        setPendingTab(tab.id);
-        setShowAdminUnlockModal(true);
-        setAdminPinInput('');
-        setAdminPinError('');
-      }
-    };
-
-    return (
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A] text-slate-400 border-t border-slate-800 px-1 py-1 shadow-2xl">
-        <div className="max-w-lg mx-auto grid grid-cols-7 gap-0.5">
-          {allTabs.map((tab) => {
-            const IconComponent = tab.icon;
-            const isActive = activeTab === tab.id;
-            const userRole = authSession?.role || 'admin';
-            const isRestricted = !tab.roles.includes(userRole);
-
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => handleTabClick(tab)}
-                className={`flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all relative cursor-pointer ${
-                  isActive
-                    ? 'text-amber-400 font-black'
-                    : isRestricted
-                    ? 'text-slate-600 hover:text-slate-400 opacity-60'
-                    : 'text-slate-400 hover:text-slate-200 font-medium'
-                }`}
-              >
-                {isActive && (
-                  <span className="absolute top-0 w-5 h-0.5 bg-amber-400 rounded-full" />
-                )}
-                <div className="relative">
-                  <IconComponent className={`w-4 h-4 mb-0.5 ${isActive ? 'scale-110' : ''}`} />
-                  {isRestricted && (
-                    <Lock className="w-2.5 h-2.5 text-amber-500 absolute -top-1 -right-2" />
-                  )}
-                </div>
-                <span className="text-[9px] tracking-tight">{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-    );
-  };
+  // (Barra de navegación inferior retirada: ahora se utiliza navegación superior unificada)
+  const renderBottomNav = () => null;
 
   // =========================================================================
   // MODAL DE AUTENTICACIÓN Y SELECCIÓN DE AMBIENTE / PERFIL (3 PASOS)
@@ -5249,7 +5367,6 @@ export default function LanchitaPOS() {
       {renderEditSupplyModal()}
       {renderRestockModal()}
       {renderReceiptModal()}
-      {renderBottomNav()}
     </div>
   );
 }

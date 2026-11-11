@@ -28,6 +28,13 @@ export const ZONAS_FISICAS = [
   { key: 'stock_almacen', label: '📦 Almacén Central', short: 'Almacén' }
 ];
 
+const normalizeText = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
 export default function KardexView({
   kardexMovimientos = [],
   supplies = [],
@@ -83,14 +90,27 @@ export default function KardexView({
         if (m.productoId !== filterProducto && m.insumoId !== filterProducto) return false;
       }
 
-      // Texto
+      // Texto con búsqueda insensible a mayúsculas y acentos
       if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const prod = (m.nombreProducto || m.nombreInsumo || '').toLowerCase();
-        const usr = (m.usuario || m.responsable || '').toLowerCase();
-        const mot = (m.motivo || '').toLowerCase();
-        const id = (m.id || '').toLowerCase();
-        if (!prod.includes(q) && !usr.includes(q) && !mot.includes(q) && !id.includes(q)) {
+        const q = normalizeText(searchTerm);
+        const prod = normalizeText(m.nombreProducto || m.nombreInsumo || '');
+        const usr = normalizeText(m.usuario || m.responsable || '');
+        const mot = normalizeText(m.motivo || '');
+        const id = normalizeText(m.id || '');
+        const insumoId = normalizeText(m.insumoId || '');
+        const prodId = normalizeText(m.productoId || '');
+        const unidad = normalizeText(m.unidad || '');
+        const cat = normalizeText(m.categoria || '');
+        if (
+          !prod.includes(q) &&
+          !usr.includes(q) &&
+          !mot.includes(q) &&
+          !id.includes(q) &&
+          !insumoId.includes(q) &&
+          !prodId.includes(q) &&
+          !unidad.includes(q) &&
+          !cat.includes(q)
+        ) {
           return false;
         }
       }
@@ -276,7 +296,7 @@ export default function KardexView({
   };
 
   return (
-    <div className="space-y-4 pb-28 pt-2">
+    <div className="space-y-4 pb-12 pt-2">
       {/* Cabecera del Módulo Kardex */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -434,11 +454,21 @@ export default function KardexView({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Buscar por producto, motivo o usuario..."
+            placeholder="🔍 Buscar insumo o producto por nombre o código..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+              title="Limpiar búsqueda"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -452,8 +482,25 @@ export default function KardexView({
         {filteredMovimientos.length === 0 ? (
           <div className="text-center py-12 px-4 text-slate-400 space-y-2">
             <Package className="w-10 h-10 mx-auto text-slate-300" />
-            <p className="text-sm font-bold text-slate-600">No hay movimientos registrados en el Kardex</p>
-            <p className="text-xs">Usa los botones superiores para registrar entradas, traslados o mermas.</p>
+            <p className="text-sm font-bold text-slate-600">
+              {searchTerm.trim()
+                ? `No se encontraron movimientos coincidentes con "${searchTerm}"`
+                : 'No hay movimientos registrados en el Kardex'}
+            </p>
+            <p className="text-xs">
+              {searchTerm.trim()
+                ? 'Intenta con otro término o limpia el buscador.'
+                : 'Usa los botones superiores para registrar entradas, traslados o mermas.'}
+            </p>
+            {searchTerm.trim() && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="mt-2 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Limpiar búsqueda
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

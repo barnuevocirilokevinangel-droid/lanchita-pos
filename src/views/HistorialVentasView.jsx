@@ -205,7 +205,7 @@ export default function HistorialVentasView({
   };
 
   return (
-    <div className="space-y-4 pb-28 pt-2">
+    <div className="space-y-4 pb-12 pt-2">
       {/* Cabecera del Registro de Ventas */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
         <div>

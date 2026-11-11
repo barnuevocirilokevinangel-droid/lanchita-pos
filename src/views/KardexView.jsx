@@ -22,11 +22,42 @@ import {
 } from 'lucide-react';
 
 export const ZONAS_FISICAS = [
-  { key: 'stock_cocina', label: '🐟 Cocina Marina', short: 'Cocina' },
-  { key: 'stock_piso1', label: '🍽️ Salón Piso 1', short: 'Piso 1' },
-  { key: 'stock_piso2', label: '🍽️ Salón Piso 2', short: 'Piso 2' },
-  { key: 'stock_almacen', label: '📦 Almacén Central', short: 'Almacén' }
+  {
+    key: 'zona_cocina_salon',
+    label: '🐟 Cocina & Salón General',
+    short: 'Cocina & Salón',
+    desc: 'Pescados, mariscos, abarrotes, verduras y descartables'
+  },
+  {
+    key: 'zona_bar_terraza',
+    label: '🎤 Bar Karaoke & Terraza',
+    short: 'Bar & Terraza',
+    desc: 'Exclusivo bebidas: cervezas, gaseosas, aguas, licores y hielo'
+  }
 ];
+
+export const formatZona = (z) => {
+  if (!z) return '-';
+  if (
+    z === 'zona_cocina_salon' ||
+    z === 'stock_cocina' ||
+    z === 'stock_almacen' ||
+    z === 'stock_piso1' ||
+    z.includes('Cocina') ||
+    z.includes('Salón')
+  ) {
+    return '🐟 Cocina & Salón';
+  }
+  if (
+    z === 'zona_bar_terraza' ||
+    z === 'stock_piso2' ||
+    z.includes('Terraza') ||
+    z.includes('Bar')
+  ) {
+    return '🎤 Bar & Terraza';
+  }
+  return z;
+};
 
 const normalizeText = (s) =>
   String(s || '')
@@ -56,8 +87,8 @@ export default function KardexView({
   // Formulario compartido
   const [selectedProductId, setSelectedProductId] = useState(supplies[0]?.id || '');
   const [formCantidad, setFormCantidad] = useState('');
-  const [formOrigen, setFormOrigen] = useState('stock_almacen');
-  const [formDestino, setFormDestino] = useState('stock_cocina');
+  const [formOrigen, setFormOrigen] = useState('zona_cocina_salon');
+  const [formDestino, setFormDestino] = useState('zona_cocina_salon');
   const [formMotivo, setFormMotivo] = useState('');
   const [formUsuario, setFormUsuario] = useState(activeUser);
 
@@ -80,9 +111,29 @@ export default function KardexView({
       // Tipo
       if (filterTipo !== 'TODOS' && m.tipo !== filterTipo) return false;
 
-      // Zona
+      // Zona (con soporte para 2 zonas reales y retrocompatibilidad)
       if (filterZona !== 'TODAS') {
-        if (m.origen !== filterZona && m.destino !== filterZona) return false;
+        const matchesTargetZone = (val, targetZone) => {
+          if (!val) return false;
+          if (val === targetZone) return true;
+          if (targetZone === 'zona_cocina_salon') {
+            return (
+              val === 'stock_cocina' ||
+              val === 'stock_piso1' ||
+              val === 'stock_almacen' ||
+              val.includes('Cocina') ||
+              val.includes('Salón')
+            );
+          }
+          if (targetZone === 'zona_bar_terraza') {
+            return val === 'stock_piso2' || val.includes('Terraza') || val.includes('Bar');
+          }
+          return false;
+        };
+
+        if (!matchesTargetZone(m.origen, filterZona) && !matchesTargetZone(m.destino, filterZona)) {
+          return false;
+        }
       }
 
       // Producto
@@ -155,7 +206,7 @@ export default function KardexView({
 
       const origen =
         tipo === 'ENTRADA_COMPRA'
-          ? 'Proveedor / Exterior'
+          ? 'Proveedor / Compra Directa'
           : tipo === 'MERMA'
           ? formOrigen
           : tipo === 'TRASLADO'
@@ -319,7 +370,7 @@ export default function KardexView({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Logística &gt; Kardex de Movimientos • Trazabilidad física por zonas (Cocina, Salón Piso 1, Salón Piso 2, Almacén)
+            Logística &gt; Kardex de Movimientos • Trazabilidad física en 2 zonas: Cocina &amp; Salón General y Bar Karaoke &amp; Terraza
           </p>
         </div>
 
@@ -338,9 +389,9 @@ export default function KardexView({
           <button
             type="button"
             onClick={() => {
-              setFormOrigen('stock_almacen');
-              setFormDestino('stock_cocina');
-              setFormMotivo('Traslado para atención del día');
+              setFormOrigen('zona_cocina_salon');
+              setFormDestino('zona_bar_terraza');
+              setFormMotivo('Traslado operativo entre Cocina/Salón y Bar/Terraza');
               setActiveModal('TRASLADO');
             }}
             className="px-3 py-2 bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-900 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
@@ -352,7 +403,7 @@ export default function KardexView({
           <button
             type="button"
             onClick={() => {
-              setFormOrigen('stock_cocina');
+              setFormOrigen('zona_cocina_salon');
               setFormMotivo('Merma justificada por fecha o deterioro');
               setActiveModal('MERMA');
             }}
@@ -365,37 +416,47 @@ export default function KardexView({
           <button
             type="button"
             onClick={() => {
-              setFormDestino('stock_almacen');
-              setFormMotivo('Compra con factura / reposición de proveedor');
+              setFormDestino('zona_cocina_salon');
+              setFormMotivo('Ingreso directo por compra / reposición de mercadería');
               setActiveModal('ENTRADA');
             }}
             className="px-3.5 py-2 bg-[#059669] hover:bg-[#047857] text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Entrada / Ajuste</span>
+            <span>📥 Ingreso Directo</span>
           </button>
         </div>
       </div>
 
-      {/* Zonas Físicas de Inventario */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      {/* Zonas Físicas Reales de Inventario (2 Zonas Integradas) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {ZONAS_FISICAS.map((z) => {
+          const isActive = filterZona === z.key;
           return (
             <div
               key={z.key}
-              onClick={() => setFilterZona(filterZona === z.key ? 'TODAS' : z.key)}
-              className={`p-3 rounded-2xl border-2 transition cursor-pointer select-none ${
-                filterZona === z.key
-                  ? 'border-amber-500 bg-amber-50/70 shadow-xs'
-                  : 'border-slate-200 bg-white hover:border-slate-300'
+              onClick={() => setFilterZona(isActive ? 'TODAS' : z.key)}
+              className={`p-3.5 rounded-2xl border-2 transition cursor-pointer select-none ${
+                isActive
+                  ? 'border-amber-500 bg-amber-50/80 shadow-md ring-2 ring-amber-400/20'
+                  : 'border-slate-200 bg-white hover:border-slate-300 shadow-xs'
               }`}
             >
-              <div className="text-xs font-black text-slate-900">{z.label}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Zona de despacho físico</div>
-              <div className="mt-1 flex items-center justify-between text-[10px]">
-                <span className="font-bold text-slate-600">Filtrar por esta zona</span>
-                <span className="font-mono text-amber-700 font-extrabold">
-                  {filterZona === z.key ? '● Activo' : '○ Ver'}
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-black text-slate-900">{z.label}</div>
+                <span
+                  className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                    isActive ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {isActive ? '● Filtro Activo' : 'Ver movimientos'}
+                </span>
+              </div>
+              <div className="text-xs text-slate-500 mt-1">{z.desc}</div>
+              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-slate-500">Ubicación física</span>
+                <span className="font-mono text-amber-700 font-bold">
+                  {isActive ? 'Mostrando solo esta zona' : 'Toca para aislar'}
                 </span>
               </div>
             </div>
@@ -544,11 +605,11 @@ export default function KardexView({
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 font-medium">
-                        {m.origen || 'Almacén'}
+                        {formatZona(m.origen)}
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap text-slate-600 font-medium">
-                        {m.destino || 'Cocina'}
+                        {formatZona(m.destino)}
                       </td>
 
                       <td className="py-2.5 px-3 whitespace-nowrap text-right font-mono font-black text-sm">
@@ -683,16 +744,19 @@ export default function KardexView({
               {activeModal === 'ENTRADA' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Zona Destino Físico
+                    Zona de Ingreso Directo *
                   </label>
+                  <p className="text-[11px] text-slate-500 mb-1.5">
+                    Entrada directa a la ubicación física del local (sin almacén intermediario):
+                  </p>
                   <select
                     value={formDestino}
                     onChange={(e) => setFormDestino(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800"
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
                   >
                     {ZONAS_FISICAS.map((z) => (
                       <option key={z.key} value={z.key}>
-                        {z.label}
+                        {z.label} — {z.desc}
                       </option>
                     ))}
                   </select>

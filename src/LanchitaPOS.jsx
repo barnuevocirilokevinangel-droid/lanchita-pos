@@ -78,10 +78,10 @@ import HistorialVentasView from './views/HistorialVentasView';
 import CierreCajaView from './views/CierreCajaView';
 
 // =========================================================================
-// 1. SEMILLA INICIAL EXACTA DE INSUMOS (CON IDS FIJOS Y STOCK BASE)
+// 1. SEMILLA INICIAL EXACTA DE INSUMOS (CON IDS FIJOS Y 2 ZONAS REALES)
 // =========================================================================
 const INITIAL_SUPPLIES = [
-  // 🐟 Cocina Marina (Insumos Críticos)
+  // 🐟 Cocina & Salón General (Insumos Críticos)
   {
     id: 'insumo_pescado',
     nombre: 'Pescado Fresco del Día',
@@ -89,6 +89,7 @@ const INITIAL_SUPPLIES = [
     stock: 15000, // 15 kg
     unidad: 'g',
     alertaMinima: 2000,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_mariscos',
@@ -97,6 +98,7 @@ const INITIAL_SUPPLIES = [
     stock: 10000, // 10 kg
     unidad: 'g',
     alertaMinima: 1500,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_limon',
@@ -105,6 +107,7 @@ const INITIAL_SUPPLIES = [
     stock: 250, // unidades
     unidad: 'unid',
     alertaMinima: 40,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_cebolla',
@@ -113,6 +116,7 @@ const INITIAL_SUPPLIES = [
     stock: 10000, // 10 kg
     unidad: 'g',
     alertaMinima: 1000,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_camote',
@@ -121,6 +125,7 @@ const INITIAL_SUPPLIES = [
     stock: 60, // unidades
     unidad: 'unid',
     alertaMinima: 10,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_canchita',
@@ -129,6 +134,7 @@ const INITIAL_SUPPLIES = [
     stock: 5000, // 5 kg
     unidad: 'g',
     alertaMinima: 500,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_yuca',
@@ -137,9 +143,10 @@ const INITIAL_SUPPLIES = [
     stock: 6000, // 6 kg
     unidad: 'g',
     alertaMinima: 1000,
+    zona: 'zona_cocina_salon'
   },
 
-  // 🍹 Barra & Tragos
+  // 🍹 Bar Karaoke & Terraza (Bebidas, Licores, Cervezas)
   {
     id: 'insumo_cerveza_pilsen',
     nombre: 'Cerveza Pilsen 620ml',
@@ -147,6 +154,7 @@ const INITIAL_SUPPLIES = [
     stock: 48, // botellas
     unidad: 'botellas',
     alertaMinima: 12,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_cerveza_cusquena',
@@ -155,6 +163,7 @@ const INITIAL_SUPPLIES = [
     stock: 36, // botellas
     unidad: 'botellas',
     alertaMinima: 12,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_corona',
@@ -163,6 +172,7 @@ const INITIAL_SUPPLIES = [
     stock: 30, // botellas
     unidad: 'botellas',
     alertaMinima: 8,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_pisco',
@@ -171,6 +181,7 @@ const INITIAL_SUPPLIES = [
     stock: 5000, // ml (5 Litros)
     unidad: 'ml',
     alertaMinima: 750,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_ginger_ale',
@@ -179,6 +190,7 @@ const INITIAL_SUPPLIES = [
     stock: 40,
     unidad: 'latas',
     alertaMinima: 10,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_jarabe_goma',
@@ -187,6 +199,7 @@ const INITIAL_SUPPLIES = [
     stock: 4000, // ml
     unidad: 'ml',
     alertaMinima: 500,
+    zona: 'zona_bar_terraza'
   },
 
   // 🥤 Bebidas & Refrescos
@@ -197,6 +210,7 @@ const INITIAL_SUPPLIES = [
     stock: 30, // botellas
     unidad: 'botellas',
     alertaMinima: 6,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_gaseosa_coca',
@@ -205,6 +219,7 @@ const INITIAL_SUPPLIES = [
     stock: 30,
     unidad: 'botellas',
     alertaMinima: 6,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_agua',
@@ -213,6 +228,7 @@ const INITIAL_SUPPLIES = [
     stock: 30,
     unidad: 'botellas',
     alertaMinima: 6,
+    zona: 'zona_bar_terraza'
   },
   {
     id: 'insumo_maiz_morado',
@@ -221,6 +237,7 @@ const INITIAL_SUPPLIES = [
     stock: 8000, // g
     unidad: 'g',
     alertaMinima: 1000,
+    zona: 'zona_cocina_salon'
   },
   {
     id: 'insumo_azucar',
@@ -229,19 +246,22 @@ const INITIAL_SUPPLIES = [
     stock: 10000, // g
     unidad: 'g',
     alertaMinima: 1500,
+    zona: 'zona_cocina_salon'
   },
 ];
 
 // =========================================================================
-// 2. RECETARIO & MENÚ CON VINCULACIÓN ESTRICTA DE INSUMOS
+// 2. RECETARIO & MENÚ CON TIPO DE PRODUCTO (DIRECTO vs ELABORADO) Y ZONAS
 // =========================================================================
 const INITIAL_PRODUCTS = [
-  // 🍋 CEVICHES & TIRADITOS
+  // 🍋 CEVICHES & TIRADITOS (Cocina & Salón General)
   {
     id: 'cev-1',
     category: 'ceviches',
     name: 'Ceviche Tradicional La Lanchita',
     price: 35.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 200, label: '200g Pescado fresco' },
       { supplyId: 'insumo_limon', qty: 5, label: '5u Limón' },
@@ -255,6 +275,8 @@ const INITIAL_PRODUCTS = [
     category: 'ceviches',
     name: 'Ceviche Mixto Rompeolas',
     price: 40.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 150, label: '150g Pescado fresco' },
       { supplyId: 'insumo_mariscos', qty: 120, label: '120g Mariscos' },
@@ -268,6 +290,8 @@ const INITIAL_PRODUCTS = [
     category: 'ceviches',
     name: 'Tiradito Bicolor en Ají Amarillo',
     price: 38.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 180, label: '180g Pescado fino' },
       { supplyId: 'insumo_limon', qty: 4, label: '4u Limón' },
@@ -279,6 +303,8 @@ const INITIAL_PRODUCTS = [
     category: 'ceviches',
     name: 'Leche de Tigre Poderosa',
     price: 18.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 80, label: '80g Pescado' },
       { supplyId: 'insumo_mariscos', qty: 50, label: '50g Chicharrón pota' },
@@ -293,6 +319,8 @@ const INITIAL_PRODUCTS = [
     category: 'chicharrones',
     name: 'Chicharrón de Pescado Crocante',
     price: 34.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 220, label: '220g Pescado' },
       { supplyId: 'insumo_yuca', qty: 150, label: '150g Yuca frita' },
@@ -304,6 +332,8 @@ const INITIAL_PRODUCTS = [
     category: 'chicharrones',
     name: 'Chicharrón Mixto Marino',
     price: 42.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 120, label: '120g Pescado' },
       { supplyId: 'insumo_mariscos', qty: 180, label: '180g Calamar/Langostino' },
@@ -316,6 +346,8 @@ const INITIAL_PRODUCTS = [
     category: 'chicharrones',
     name: 'Jalea Real Familiar Lanchita',
     price: 65.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 300, label: '300g Pescado' },
       { supplyId: 'insumo_mariscos', qty: 300, label: '300g Mixtura marina' },
@@ -331,6 +363,8 @@ const INITIAL_PRODUCTS = [
     category: 'calientes',
     name: 'Arroz con Mariscos a la Chalaca',
     price: 36.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_mariscos', qty: 200, label: '200g Mixtura mariscos' },
       { supplyId: 'insumo_cebolla', qty: 40, label: '40g Cebolla' },
@@ -341,6 +375,8 @@ const INITIAL_PRODUCTS = [
     category: 'calientes',
     name: 'Parihuela Especial Concentrada',
     price: 45.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_pescado', qty: 250, label: '250g Pescado trozo' },
       { supplyId: 'insumo_mariscos', qty: 150, label: '150g Mariscos' },
@@ -349,12 +385,15 @@ const INITIAL_PRODUCTS = [
     ],
   },
 
-  // 🍻 CERVEZAS & TRAGOS (TERRAZA KARAOKE)
+  // 🍻 CERVEZAS & TRAGOS (Bar Karaoke & Terraza)
   {
     id: 'lic-1',
     category: 'tragos',
     name: 'Cerveza Pilsen 620ml',
     price: 12.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_cerveza_pilsen',
     ingredients: [
       { supplyId: 'insumo_cerveza_pilsen', qty: 1, label: '1 Botella Pilsen 620ml' },
     ],
@@ -364,6 +403,9 @@ const INITIAL_PRODUCTS = [
     category: 'tragos',
     name: 'Cerveza Cusqueña Trigo',
     price: 14.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_cerveza_cusquena',
     ingredients: [
       { supplyId: 'insumo_cerveza_cusquena', qty: 1, label: '1 Botella Cusqueña Trigo' },
     ],
@@ -373,6 +415,8 @@ const INITIAL_PRODUCTS = [
     category: 'tragos',
     name: 'Chilcano Clásico',
     price: 18.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_bar_terraza',
     ingredients: [
       { supplyId: 'insumo_pisco', qty: 60, label: '60ml Pisco Quebranta' },
       { supplyId: 'insumo_limon', qty: 1, label: '1u Limón sutil' },
@@ -384,6 +428,9 @@ const INITIAL_PRODUCTS = [
     category: 'tragos',
     name: 'Cerveza Corona Extra 355ml',
     price: 13.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_corona',
     ingredients: [
       { supplyId: 'insumo_corona', qty: 1, label: '1 Botella Corona 355ml' },
       { supplyId: 'insumo_limon', qty: 1, label: '1 Rodaja Limón' },
@@ -394,6 +441,8 @@ const INITIAL_PRODUCTS = [
     category: 'tragos',
     name: 'Pisco Sour Copa Catedral',
     price: 22.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_bar_terraza',
     ingredients: [
       { supplyId: 'insumo_pisco', qty: 120, label: '120ml Pisco Quebranta' },
       { supplyId: 'insumo_limon', qty: 3, label: '3u Limón sutil' },
@@ -407,6 +456,9 @@ const INITIAL_PRODUCTS = [
     category: 'bebidas',
     name: 'Inca Kola 500ml',
     price: 5.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_gaseosa_inka',
     ingredients: [
       { supplyId: 'insumo_gaseosa_inka', qty: 1, label: '1 Botella 500ml' },
     ],
@@ -416,6 +468,9 @@ const INITIAL_PRODUCTS = [
     category: 'bebidas',
     name: 'Coca Cola 500ml',
     price: 5.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_gaseosa_coca',
     ingredients: [
       { supplyId: 'insumo_gaseosa_coca', qty: 1, label: '1 Botella 500ml' },
     ],
@@ -425,6 +480,8 @@ const INITIAL_PRODUCTS = [
     category: 'bebidas',
     name: 'Jarra Chicha Morada Casera (1L)',
     price: 14.00,
+    tipoProducto: 'ELABORADO',
+    zonaDespacho: 'zona_cocina_salon',
     ingredients: [
       { supplyId: 'insumo_maiz_morado', qty: 150, label: '150g Maíz morado' },
       { supplyId: 'insumo_azucar', qty: 60, label: '60g Azúcar' },
@@ -436,6 +493,9 @@ const INITIAL_PRODUCTS = [
     category: 'bebidas',
     name: 'Agua San Luis 625ml',
     price: 4.00,
+    tipoProducto: 'DIRECTO',
+    zonaDespacho: 'zona_bar_terraza',
+    supplyId: 'insumo_agua',
     ingredients: [
       { supplyId: 'insumo_agua', qty: 1, label: '1 Botella 625ml' },
     ],
@@ -583,9 +643,9 @@ const ERP_NAV_TABS = [
   { id: 'admin', label: 'Admin', emoji: '⚙️', roles: ['admin'] },
 ];
 
-const cartTotal = (cart) =>
+const cartTotal = (cart, catalog = INITIAL_PRODUCTS) =>
   Object.entries(cart || {}).reduce((acc, [id, qty]) => {
-    const p = INITIAL_PRODUCTS.find((x) => x.id === id);
+    const p = catalog.find((x) => x.id === id);
     return p && qty > 0 ? acc + p.price * qty : acc;
   }, 0);
 const cartCount = (cart) =>
@@ -736,6 +796,35 @@ export default function LanchitaPOS() {
     }
   });
 
+  // Carta marina y productos sincronizados
+  const [products, setProducts] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lanchita_products');
+      return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+    } catch {
+      return INITIAL_PRODUCTS;
+    }
+  });
+
+  // Modal de Creación / Edición de Producto / Plato
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [productForm, setProductForm] = useState({
+    id: '',
+    name: '',
+    category: 'ceviches',
+    price: '',
+    zonaDespacho: 'zona_cocina_salon',
+    tipoProducto: 'ELABORADO', // 'DIRECTO' | 'ELABORADO'
+    stockInicial: '24',
+    alertaMinima: '5',
+    unidadMedida: 'unid',
+    linkExistingSupply: false,
+    supplyId: '',
+    ingredients: [{ supplyId: '', qty: '', label: '' }],
+  });
+
   // Ventas sincronizadas
   const [salesHistory, setSalesHistory] = useState(() => {
     try {
@@ -773,6 +862,7 @@ export default function LanchitaPOS() {
     unidad: 'kg',
     stock: '',
     alertaMinima: '',
+    zona: 'zona_cocina_salon',
   });
 
   const [editSupplyModal, setEditSupplyModal] = useState(null);
@@ -873,8 +963,8 @@ export default function LanchitaPOS() {
   );
 
   const filteredProducts = useMemo(() => {
-    if (!normalizedProductSearch) return INITIAL_PRODUCTS;
-    return INITIAL_PRODUCTS.filter((prod) => {
+    if (!normalizedProductSearch) return products;
+    return products.filter((prod) => {
       const nameNorm = normalizeText(prod.name);
       const catNorm = normalizeText(prod.category);
       const ingredientsNorm = (prod.ingredients || [])
@@ -886,7 +976,7 @@ export default function LanchitaPOS() {
         ingredientsNorm.includes(normalizedProductSearch)
       );
     });
-  }, [normalizedProductSearch]);
+  }, [products, normalizedProductSearch]);
 
   // Filtrado reactivo de insumos para Inventario con useMemo (por nombre, código/id, categoría o unidad)
   const normalizedSupplySearch = useMemo(
@@ -1058,12 +1148,14 @@ export default function LanchitaPOS() {
 
         const remoteList = snapshot.docs.map((docSnap) => {
           const data = docSnap.data();
+          const cat = data.categoria || data.category || 'Cocina Marina';
           return {
             id: docSnap.id,
             nombre: data.nombre || data.name || docSnap.id,
             stock: Number(data.stock) || 0,
             unidad: data.unidad || data.unit || 'unid',
-            categoria: data.categoria || data.category || 'Cocina Marina',
+            categoria: cat,
+            zona: data.zona || (['Barra & Tragos', 'Bebidas & Refrescos'].includes(cat) ? 'zona_bar_terraza' : 'zona_cocina_salon'),
             alertaMinima: Number(data.alertaMinima || data.minAlert) || 10,
           };
         });
@@ -1082,6 +1174,45 @@ export default function LanchitaPOS() {
     );
 
     return () => unsubscribe();
+  }, []);
+
+  // Listener para la colección 'productos' en tiempo real
+  useEffect(() => {
+    if (!isFirebaseConfigured) return;
+
+    try {
+      const prodsCol = collection(db, 'productos');
+      const unsubscribe = onSnapshot(
+        prodsCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const remoteProducts = snapshot.docs.map((docSnap) => {
+              const data = docSnap.data();
+              const cat = data.category || data.categoria || 'ceviches';
+              return {
+                id: docSnap.id,
+                name: data.name || data.nombre || docSnap.id,
+                category: cat,
+                price: Number(data.price ?? data.precio) || 0,
+                tipoProducto: data.tipoProducto || (data.ingredients && data.ingredients.length > 0 ? 'ELABORADO' : 'DIRECTO'),
+                zonaDespacho: data.zonaDespacho || (['tragos', 'bebidas'].includes(cat) ? 'zona_bar_terraza' : 'zona_cocina_salon'),
+                supplyId: data.supplyId || null,
+                ingredients: data.ingredients || data.ingredientes || [],
+              };
+            });
+            setProducts(remoteProducts);
+            localStorage.setItem('lanchita_products', JSON.stringify(remoteProducts));
+          }
+        },
+        (error) => {
+          console.warn('Error en listener de productos:', error);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.warn('No se pudo inicializar listener de productos:', err);
+    }
   }, []);
 
   // Listener para la colección 'ventas'
@@ -1139,6 +1270,10 @@ export default function LanchitaPOS() {
   // CUENTAS ACTIVAS (MULTIMESA) SINCRONIZADAS CON FIRESTORE
   // =========================================================================
   accountsRef.current = accounts;
+
+  useEffect(() => {
+    localStorage.setItem('lanchita_products', JSON.stringify(products));
+  }, [products]);
 
   useEffect(() => {
     localStorage.setItem('lanchita_accounts', JSON.stringify(accounts));
@@ -1333,7 +1468,7 @@ export default function LanchitaPOS() {
   const persistAccount = async (name, cart, split) => {
     const id = slugify(name);
     const existing = accountsRef.current.find((a) => a.id === id);
-    const total = cartTotal(cart);
+    const total = cartTotal(cart, products);
     const itemsCount = cartCount(cart);
 
     if (itemsCount === 0) {
@@ -1433,16 +1568,34 @@ export default function LanchitaPOS() {
     const committedSupplies = {};
     Object.entries(orderCart).forEach(([prodId, qty]) => {
       if (qty > 0) {
-        const prod = INITIAL_PRODUCTS.find((p) => p.id === prodId);
-        if (prod && prod.ingredients) {
-          prod.ingredients.forEach((ing) => {
-            committedSupplies[ing.supplyId] = (committedSupplies[ing.supplyId] || 0) + ing.qty * qty;
-          });
+        const prod = products.find((p) => p.id === prodId);
+        if (prod) {
+          if (prod.tipoProducto === 'DIRECTO' && prod.supplyId) {
+            committedSupplies[prod.supplyId] = (committedSupplies[prod.supplyId] || 0) + 1 * qty;
+          } else if (prod.ingredients) {
+            prod.ingredients.forEach((ing) => {
+              committedSupplies[ing.supplyId] = (committedSupplies[ing.supplyId] || 0) + ing.qty * qty;
+            });
+          }
         }
       }
     });
 
-    if (product.ingredients) {
+    if (product.tipoProducto === 'DIRECTO' && product.supplyId) {
+      const supply = supplies.find((s) => s.id === product.supplyId);
+      const alreadyUsed = committedSupplies[product.supplyId] || 0;
+      const available = supply ? supply.stock - alreadyUsed : 0;
+      if (!supply || available < 1) {
+        return {
+          canAdd: false,
+          missingSupplyName: supply?.nombre || product.name,
+          unit: supply?.unidad || 'unid',
+          availableStock: Math.max(0, available),
+        };
+      }
+    }
+
+    if (product.ingredients && product.ingredients.length > 0) {
       for (const ing of product.ingredients) {
         const supply = supplies.find((s) => s.id === ing.supplyId);
         if (!supply) continue;
@@ -1500,7 +1653,7 @@ export default function LanchitaPOS() {
   const orderItems = useMemo(() => {
     return Object.entries(orderCart)
       .map(([id, qty]) => {
-        const prod = INITIAL_PRODUCTS.find((p) => p.id === id);
+        const prod = products.find((p) => p.id === id);
         if (!prod || qty <= 0) return null;
         return {
           ...prod,
@@ -1509,7 +1662,7 @@ export default function LanchitaPOS() {
         };
       })
       .filter(Boolean);
-  }, [orderCart]);
+  }, [orderCart, products]);
 
   const totalOrderAmount = useMemo(() => {
     return orderItems.reduce((acc, it) => acc + it.subtotal, 0);
@@ -1589,11 +1742,16 @@ export default function LanchitaPOS() {
 
         // 2. Calcular merma según ingredientes configurados o venta directa
         const supplyDeductions = {};
+        const supplyZones = {};
         orderItems.forEach((item) => {
-          if (item.ingredients && item.ingredients.length > 0) {
+          if (item.tipoProducto === 'DIRECTO' && item.supplyId) {
+            supplyDeductions[item.supplyId] = (supplyDeductions[item.supplyId] || 0) + item.qty;
+            supplyZones[item.supplyId] = item.zonaDespacho || (activeArea === 'terraza' ? 'zona_bar_terraza' : 'zona_cocina_salon');
+          } else if (item.ingredients && item.ingredients.length > 0) {
             item.ingredients.forEach((ing) => {
               supplyDeductions[ing.supplyId] =
                 (supplyDeductions[ing.supplyId] || 0) + (item.qty * ing.qty);
+              supplyZones[ing.supplyId] = item.zonaDespacho || (activeArea === 'terraza' ? 'zona_bar_terraza' : 'zona_cocina_salon');
             });
           }
         });
@@ -1608,13 +1766,15 @@ export default function LanchitaPOS() {
           const sup = supplies.find((s) => s.id === supplyId);
           const stockAnt = Number(sup?.stock) || 0;
           const kRef = doc(collection(db, 'kardex_inventario'));
+          const targetZone = supplyZones[supplyId] || sup?.zona || (activeArea === 'terraza' ? 'zona_bar_terraza' : 'zona_cocina_salon');
+
           batch.set(kRef, {
             timestamp: Date.now(),
             fecha: serverTimestamp(),
             productoId: supplyId,
             nombreProducto: sup?.nombre || supplyId,
             tipo: 'VENTA_POS',
-            origen: activeArea === 'terraza' ? 'stock_piso2' : 'stock_cocina',
+            origen: targetZone,
             destino: 'Consumo / Venta',
             cantidadMovida: round2(deduction),
             unidad: sup?.unidad || 'unid',
@@ -1653,9 +1813,13 @@ export default function LanchitaPOS() {
           prev.map((sup) => {
             let deduction = 0;
             orderItems.forEach((it) => {
-              (it.ingredients || []).forEach((ing) => {
-                if (ing.supplyId === sup.id) deduction += ing.qty * it.qty;
-              });
+              if (it.tipoProducto === 'DIRECTO' && it.supplyId === sup.id) {
+                deduction += it.qty;
+              } else if (it.ingredients) {
+                it.ingredients.forEach((ing) => {
+                  if (ing.supplyId === sup.id) deduction += ing.qty * it.qty;
+                });
+              }
             });
             return { ...sup, stock: Math.max(0, sup.stock - deduction) };
           })
@@ -1706,34 +1870,62 @@ export default function LanchitaPOS() {
 
         // 2. Devolver insumos al stock físico y registrar reverso en kardex_inventario
         (saleToAnnull.items || []).forEach((item) => {
-          const ings = item.ingredientes || item.ingredients || [];
-          if (ings.length > 0) {
-            ings.forEach((ing) => {
-              const qtyRetorno = ing.qty * (item.qty || 1);
-              const supRef = doc(db, 'insumos', ing.supplyId);
-              batch.update(supRef, {
-                stock: increment(qtyRetorno)
-              });
-
-              const sup = supplies.find((s) => s.id === ing.supplyId);
-              const stockAnt = Number(sup?.stock) || 0;
-              const kRef = doc(collection(db, 'kardex_inventario'));
-              batch.set(kRef, {
-                timestamp: Date.now(),
-                fecha: serverTimestamp(),
-                productoId: ing.supplyId,
-                nombreProducto: sup?.nombre || ing.supplyId,
-                tipo: 'ENTRADA_COMPRA',
-                origen: 'Reverso Anulación',
-                destino: saleToAnnull.area === 'terraza' ? 'stock_piso2' : 'stock_cocina',
-                cantidadMovida: round2(qtyRetorno),
-                unidad: sup?.unidad || 'unid',
-                stockAnterior: stockAnt,
-                stockNuevo: round2(stockAnt + qtyRetorno),
-                usuario: adminName || activeUser,
-                motivo: `Reverso por Anulación Comanda ${saleToAnnull.id}: ${motivo}`
-              });
+          const directSupplyId = item.tipoProducto === 'DIRECTO' ? (item.supplyId || item.id) : null;
+          if (directSupplyId) {
+            const qtyRetorno = Number(item.qty || 1);
+            const supRef = doc(db, 'insumos', directSupplyId);
+            batch.update(supRef, {
+              stock: increment(qtyRetorno),
             });
+
+            const sup = supplies.find((s) => s.id === directSupplyId);
+            const stockAnt = Number(sup?.stock) || 0;
+            const kRef = doc(collection(db, 'kardex_inventario'));
+            batch.set(kRef, {
+              timestamp: Date.now(),
+              fecha: serverTimestamp(),
+              productoId: directSupplyId,
+              nombreProducto: sup?.nombre || item.nombre || directSupplyId,
+              tipo: 'ENTRADA_COMPRA',
+              origen: 'Reverso Anulación',
+              destino: saleToAnnull.area === 'terraza' ? 'zona_bar_terraza' : 'zona_cocina_salon',
+              cantidadMovida: round2(qtyRetorno),
+              unidad: sup?.unidad || 'unid',
+              stockAnterior: stockAnt,
+              stockNuevo: round2(stockAnt + qtyRetorno),
+              usuario: adminName || activeUser,
+              motivo: `Reverso por Anulación Comanda ${saleToAnnull.id}: ${motivo}`,
+            });
+          } else {
+            const ings = item.ingredientes || item.ingredients || [];
+            if (ings.length > 0) {
+              ings.forEach((ing) => {
+                const qtyRetorno = ing.qty * (item.qty || 1);
+                const supRef = doc(db, 'insumos', ing.supplyId);
+                batch.update(supRef, {
+                  stock: increment(qtyRetorno)
+                });
+
+                const sup = supplies.find((s) => s.id === ing.supplyId);
+                const stockAnt = Number(sup?.stock) || 0;
+                const kRef = doc(collection(db, 'kardex_inventario'));
+                batch.set(kRef, {
+                  timestamp: Date.now(),
+                  fecha: serverTimestamp(),
+                  productoId: ing.supplyId,
+                  nombreProducto: sup?.nombre || ing.supplyId,
+                  tipo: 'ENTRADA_COMPRA',
+                  origen: 'Reverso Anulación',
+                  destino: saleToAnnull.area === 'terraza' ? 'zona_bar_terraza' : 'zona_cocina_salon',
+                  cantidadMovida: round2(qtyRetorno),
+                  unidad: sup?.unidad || 'unid',
+                  stockAnterior: stockAnt,
+                  stockNuevo: round2(stockAnt + qtyRetorno),
+                  usuario: adminName || activeUser,
+                  motivo: `Reverso por Anulación Comanda ${saleToAnnull.id}: ${motivo}`
+                });
+              });
+            }
           }
         });
 
@@ -1781,9 +1973,14 @@ export default function LanchitaPOS() {
           prev.map((sup) => {
             let returnQty = 0;
             (saleToAnnull.items || []).forEach((it) => {
-              (it.ingredientes || it.ingredients || []).forEach((ing) => {
-                if (ing.supplyId === sup.id) returnQty += ing.qty * (it.qty || 1);
-              });
+              const directSupId = it.tipoProducto === 'DIRECTO' ? (it.supplyId || it.id) : null;
+              if (directSupId === sup.id) {
+                returnQty += Number(it.qty || 1);
+              } else {
+                (it.ingredientes || it.ingredients || []).forEach((ing) => {
+                  if (ing.supplyId === sup.id) returnQty += ing.qty * (it.qty || 1);
+                });
+              }
             });
             return returnQty > 0 ? { ...sup, stock: sup.stock + returnQty } : sup;
           })
@@ -1999,7 +2196,7 @@ export default function LanchitaPOS() {
 
     if (
       !window.confirm(
-        '¿Deseas inyectar el Inventario Inicial de La Lanchita en Cloud Firestore?\nSe poblará la colección "insumos" con los 18 insumos reales y sus recetas vinculadas.'
+        '¿Deseas inyectar el Inventario Inicial y Carta Marina de La Lanchita en Cloud Firestore?\nSe poblarán las colecciones "insumos" y "productos" oficiales.'
       )
     ) {
       return;
@@ -2021,18 +2218,245 @@ export default function LanchitaPOS() {
             unidad: item.unidad,
             categoria: item.categoria,
             alertaMinima: item.alertaMinima,
+            zona: item.zona || (['Barra & Tragos', 'Bebidas & Refrescos'].includes(item.categoria) ? 'zona_bar_terraza' : 'zona_cocina_salon'),
           },
           { merge: true }
         );
       });
 
+      INITIAL_PRODUCTS.forEach((prod) => {
+        const prodRef = doc(db, 'productos', prod.id);
+        batch.set(prodRef, prod, { merge: true });
+      });
+
       await batch.commit();
-      showToast('success', '¡Inventario Inicial de La Lanchita cargado con éxito en Cloud Firestore!');
+      showToast('success', '¡Inventario y Carta Marina de La Lanchita cargados con éxito en Cloud Firestore!');
     } catch (error) {
       console.error('Error cargando semilla en Firestore:', error);
       showToast('error', `Error al poblar Firestore: ${error.message || 'Error de permisos'}`);
     } finally {
       setIsSeeding(false);
+    }
+  };
+
+  // =========================================================================
+  // GESTIÓN DE PRODUCTOS Y RECETAS (CREAR, EDITAR, ESCANDALLO)
+  // =========================================================================
+  const handleOpenProductModal = (prod = null) => {
+    if (prod) {
+      const isDirect = prod.tipoProducto === 'DIRECTO' || (!prod.ingredients || prod.ingredients.length === 0);
+      const directSup = supplies.find((s) => s.id === (prod.supplyId || prod.id));
+      setEditingProduct(prod);
+      setProductForm({
+        id: prod.id,
+        name: prod.name || '',
+        category: prod.category || 'ceviches',
+        price: prod.price !== undefined ? prod.price.toString() : '',
+        zonaDespacho: prod.zonaDespacho || (['tragos', 'bebidas'].includes(prod.category) ? 'zona_bar_terraza' : 'zona_cocina_salon'),
+        tipoProducto: isDirect ? 'DIRECTO' : 'ELABORADO',
+        stockInicial: directSup ? directSup.stock.toString() : '24',
+        alertaMinima: directSup ? directSup.alertaMinima.toString() : '5',
+        unidadMedida: directSup?.unidad || 'unid',
+        linkExistingSupply: !!prod.supplyId,
+        supplyId: prod.supplyId || (directSup ? directSup.id : ''),
+        ingredients: prod.ingredients && prod.ingredients.length > 0
+          ? prod.ingredients.map((ing) => ({
+              supplyId: ing.supplyId || '',
+              qty: ing.qty !== undefined ? ing.qty.toString() : '',
+              label: ing.label || '',
+            }))
+          : [{ supplyId: supplies[0]?.id || '', qty: '', label: '' }],
+      });
+    } else {
+      setEditingProduct(null);
+      setProductForm({
+        id: '',
+        name: '',
+        category: 'ceviches',
+        price: '',
+        zonaDespacho: 'zona_cocina_salon',
+        tipoProducto: 'ELABORADO',
+        stockInicial: '24',
+        alertaMinima: '5',
+        unidadMedida: 'unid',
+        linkExistingSupply: false,
+        supplyId: '',
+        ingredients: [{ supplyId: supplies[0]?.id || '', qty: '', label: '' }],
+      });
+    }
+    setShowProductModal(true);
+  };
+
+  const handleAddIngredientRow = () => {
+    setProductForm((prev) => ({
+      ...prev,
+      ingredients: [
+        ...prev.ingredients,
+        { supplyId: supplies[0]?.id || '', qty: '', label: '' },
+      ],
+    }));
+  };
+
+  const handleRemoveIngredientRow = (idx) => {
+    setProductForm((prev) => {
+      const updated = prev.ingredients.filter((_, i) => i !== idx);
+      return {
+        ...prev,
+        ingredients: updated.length > 0 ? updated : [{ supplyId: supplies[0]?.id || '', qty: '', label: '' }],
+      };
+    });
+  };
+
+  const handleUpdateIngredient = (idx, field, value) => {
+    setProductForm((prev) => {
+      const nextIngs = [...prev.ingredients];
+      const cur = { ...nextIngs[idx], [field]: value };
+      if (field === 'supplyId' || field === 'qty') {
+        const targetSupId = field === 'supplyId' ? value : cur.supplyId;
+        const targetQty = field === 'qty' ? value : cur.qty;
+        const sup = supplies.find((s) => s.id === targetSupId);
+        if (sup && targetQty) {
+          cur.label = `${targetQty}${sup.unidad === 'g' || sup.unidad === 'kg' ? sup.unidad : ' ' + sup.unidad} ${sup.nombre}`;
+        }
+      }
+      nextIngs[idx] = cur;
+      return { ...prev, ingredients: nextIngs };
+    });
+  };
+
+  const handleSaveProduct = async (e) => {
+    e.preventDefault();
+    if (!productForm.name.trim()) {
+      showToast('error', 'El nombre del producto no puede estar vacío.');
+      return;
+    }
+    const priceNum = Number(productForm.price);
+    if (isNaN(priceNum) || priceNum < 0) {
+      showToast('error', 'Ingresa un precio de venta válido.');
+      return;
+    }
+
+    setIsSavingProduct(true);
+    try {
+      const isDirect = productForm.tipoProducto === 'DIRECTO';
+      const prodSlug = slugify(productForm.name);
+      const prodId = editingProduct ? editingProduct.id : `prod_${prodSlug}_${Date.now().toString().slice(-4)}`;
+
+      let finalSupplyId = null;
+      let finalIngredients = [];
+
+      if (isDirect) {
+        finalSupplyId = productForm.supplyId || editingProduct?.supplyId || `insumo_${prodSlug}`;
+        const supData = {
+          id: finalSupplyId,
+          nombre: productForm.name.trim(),
+          categoria: productForm.zonaDespacho === 'zona_bar_terraza' ? 'Barra & Tragos' : 'Cocina Marina',
+          unidad: productForm.unidadMedida || 'unid',
+          stock: Number(productForm.stockInicial) || 0,
+          alertaMinima: Number(productForm.alertaMinima) || 5,
+          zona: productForm.zonaDespacho,
+        };
+
+        if (isFirebaseConfigured) {
+          await setDoc(doc(db, 'insumos', finalSupplyId), supData, { merge: true });
+          if (!editingProduct && supData.stock > 0) {
+            await addDoc(collection(db, 'kardex_inventario'), {
+              timestamp: Date.now(),
+              fecha: serverTimestamp(),
+              productoId: finalSupplyId,
+              nombreProducto: supData.nombre,
+              tipo: 'ENTRADA_COMPRA',
+              origen: 'Inventario Inicial',
+              destino: productForm.zonaDespacho,
+              cantidadMovida: supData.stock,
+              unidad: supData.unidad,
+              stockAnterior: 0,
+              stockNuevo: supData.stock,
+              usuario: activeUser,
+              motivo: `Alta directa de producto "${productForm.name}" con stock inicial`,
+            });
+          }
+        } else {
+          setSupplies((prev) => {
+            const exists = prev.some((s) => s.id === finalSupplyId);
+            return exists ? prev.map((s) => (s.id === finalSupplyId ? { ...s, ...supData } : s)) : [supData, ...prev];
+          });
+        }
+
+        finalIngredients = [
+          {
+            supplyId: finalSupplyId,
+            qty: 1,
+            label: `1 ${productForm.unidadMedida || 'unid'} ${productForm.name.trim()}`,
+          },
+        ];
+      } else {
+        finalIngredients = productForm.ingredients
+          .filter((ing) => ing.supplyId && Number(ing.qty) > 0)
+          .map((ing) => {
+            const sup = supplies.find((s) => s.id === ing.supplyId);
+            const unit = sup?.unidad || '';
+            const qtyNum = Number(ing.qty);
+            const defaultLabel = `${qtyNum}${unit === 'g' || unit === 'kg' ? unit : ' ' + unit} ${sup?.nombre || ing.supplyId}`;
+            return {
+              supplyId: ing.supplyId,
+              qty: qtyNum,
+              label: ing.label?.trim() || defaultLabel,
+            };
+          });
+      }
+
+      const productPayload = {
+        id: prodId,
+        name: productForm.name.trim(),
+        category: productForm.category,
+        price: round2(priceNum),
+        tipoProducto: productForm.tipoProducto,
+        zonaDespacho: productForm.zonaDespacho,
+        supplyId: finalSupplyId,
+        ingredients: finalIngredients,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (isFirebaseConfigured) {
+        await setDoc(doc(db, 'productos', prodId), productPayload, { merge: true });
+      }
+
+      setProducts((prev) => {
+        const exists = prev.some((p) => p.id === prodId);
+        if (exists) {
+          return prev.map((p) => (p.id === prodId ? productPayload : p));
+        }
+        return [...prev, productPayload];
+      });
+
+      showToast(
+        'success',
+        editingProduct
+          ? `¡Plato "${productPayload.name}" actualizado con éxito!`
+          : `¡Plato "${productPayload.name}" creado y guardado en carta marina!`
+      );
+      setShowProductModal(false);
+    } catch (err) {
+      console.error('Error guardando producto:', err);
+      showToast('error', `Error al guardar producto: ${err.message || 'Error desconocido'}`);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const handleDeleteProduct = async (productId) => {
+    if (!window.confirm('¿Seguro que deseas eliminar este producto de la carta marina?')) return;
+    try {
+      if (isFirebaseConfigured) {
+        await deleteDoc(doc(db, 'productos', productId));
+      }
+      setProducts((prev) => prev.filter((p) => p.id !== productId));
+      setShowProductModal(false);
+      showToast('info', 'Producto eliminado de la carta marina.');
+    } catch (err) {
+      console.error('Error al eliminar producto:', err);
+      showToast('error', `Error al eliminar producto: ${err.message}`);
     }
   };
 
@@ -2047,12 +2471,14 @@ export default function LanchitaPOS() {
       setIsCreatingSupply(true);
 
       try {
+        const selectedZone = newSupplyForm.zona || (['Barra & Tragos', 'Bebidas & Refrescos'].includes(newSupplyForm.categoria) ? 'zona_bar_terraza' : 'zona_cocina_salon');
         const newSupplyData = {
           nombre: newSupplyForm.nombre.trim(),
           categoria: newSupplyForm.categoria,
           unidad: newSupplyForm.unidad,
           stock: Number(newSupplyForm.stock) || 0,
           alertaMinima: Number(newSupplyForm.alertaMinima) || 0,
+          zona: selectedZone,
         };
 
         if (isFirebaseConfigured) {
@@ -2062,6 +2488,21 @@ export default function LanchitaPOS() {
               collection(db, 'movimientos_inventario'),
               buildMovement({ id: docRef.id, ...newSupplyData }, 'INGRESO', newSupplyData.stock, 0, newSupplyData.stock)
             );
+            await addDoc(collection(db, 'kardex_inventario'), {
+              timestamp: Date.now(),
+              fecha: serverTimestamp(),
+              productoId: docRef.id,
+              nombreProducto: newSupplyData.nombre,
+              tipo: 'ENTRADA_COMPRA',
+              origen: 'Proveedor / Ingreso Directo',
+              destino: selectedZone,
+              cantidadMovida: newSupplyData.stock,
+              unidad: newSupplyData.unidad,
+              stockAnterior: 0,
+              stockNuevo: newSupplyData.stock,
+              usuario: activeUser,
+              motivo: `Alta de nuevo insumo "${newSupplyData.nombre}"`,
+            });
           }
           showToast('success', `¡Insumo "${newSupplyData.nombre}" creado en Firestore!`);
         } else {
@@ -2082,6 +2523,7 @@ export default function LanchitaPOS() {
           unidad: 'kg',
           stock: '',
           alertaMinima: '',
+          zona: 'zona_cocina_salon',
         });
         setShowNewSupplyModal(false);
       } catch (err) {
@@ -2714,41 +3156,56 @@ export default function LanchitaPOS() {
 
         {/* BUSCADOR INSTANTÁNEO EN POS / VENTAS */}
         <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-slate-200 shadow-xs">
-          <div className="relative flex items-center bg-slate-50 border-2 border-slate-200 focus-within:border-amber-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 rounded-xl transition-all">
-            <div className="pl-3 pr-2 text-slate-400 flex items-center">
-              <Search className="w-4 h-4 text-amber-600" />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 flex items-center bg-slate-50 border-2 border-slate-200 focus-within:border-amber-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 rounded-xl transition-all">
+              <div className="pl-3 pr-2 text-slate-400 flex items-center">
+                <Search className="w-4 h-4 text-amber-600" />
+              </div>
+              <input
+                ref={posSearchInputRef}
+                type="text"
+                value={productSearchTerm}
+                onChange={(e) => setProductSearchTerm(e.target.value)}
+                placeholder="🔍 Buscar plato o bebida (ej. ceviche mixto, pilsen, arroz)..."
+                className="w-full bg-transparent py-2.5 pr-2 text-xs sm:text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+              />
+              <div className="flex items-center gap-1 pr-2.5">
+                {productSearchTerm ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductSearchTerm('');
+                      posSearchInputRef.current?.focus();
+                    }}
+                    className="w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
+                    title="Limpiar búsqueda (Esc)"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <span
+                    onClick={() => posSearchInputRef.current?.focus()}
+                    className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-mono font-bold text-slate-500 shadow-xs cursor-pointer"
+                    title="Presiona '/' para buscar"
+                  >
+                    /
+                  </span>
+                )}
+              </div>
             </div>
-            <input
-              ref={posSearchInputRef}
-              type="text"
-              value={productSearchTerm}
-              onChange={(e) => setProductSearchTerm(e.target.value)}
-              placeholder="🔍 Buscar plato o bebida (ej. ceviche mixto, pilsen, arroz)..."
-              className="w-full bg-transparent py-2.5 pr-2 text-xs sm:text-sm font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
-            />
-            <div className="flex items-center gap-1 pr-2.5">
-              {productSearchTerm ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProductSearchTerm('');
-                    posSearchInputRef.current?.focus();
-                  }}
-                  className="w-6 h-6 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 hover:text-slate-900 flex items-center justify-center transition cursor-pointer"
-                  title="Limpiar búsqueda (Esc)"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <span
-                  onClick={() => posSearchInputRef.current?.focus()}
-                  className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-mono font-bold text-slate-500 shadow-xs cursor-pointer"
-                  title="Presiona '/' para buscar"
-                >
-                  /
-                </span>
-              )}
-            </div>
+
+            {authSession?.role !== 'mozo_caja' && (
+              <button
+                type="button"
+                onClick={() => handleOpenProductModal()}
+                className="bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm whitespace-nowrap"
+                title="Crear un nuevo plato elaborado o producto directo"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="hidden sm:inline">+ Nuevo Producto / Plato</span>
+                <span className="sm:hidden">+ Plato</span>
+              </button>
+            )}
           </div>
 
           {normalizedProductSearch && (
@@ -2860,30 +3317,85 @@ export default function LanchitaPOS() {
                           >
                             <div>
                               <div className="flex items-start justify-between gap-2">
-                                <h4 className="font-bold text-slate-900 text-sm leading-snug">
-                                  {prod.name}
-                                </h4>
-                                <span className="text-base font-black text-[#0F172A] whitespace-nowrap font-mono">
-                                  S/ {prod.price.toFixed(2)}
-                                </span>
+                                <div className="flex-1 min-w-0 pr-1">
+                                  <h4 className="font-bold text-slate-900 text-sm leading-snug">
+                                    {prod.name}
+                                  </h4>
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                                      {prod.zonaDespacho === 'zona_bar_terraza' ? '🎤 Bar Karaoke' : '🐟 Cocina Marina'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {authSession?.role !== 'mozo_caja' && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenProductModal(prod);
+                                      }}
+                                      className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                                      title="Editar receta, precio o zona del plato"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  <span className="text-base font-black text-[#0F172A] whitespace-nowrap font-mono">
+                                    S/ {prod.price.toFixed(2)}
+                                  </span>
+                                </div>
                               </div>
 
-                              {/* Desglose: INGREDIENTES POR UNIDAD */}
-                              <div className="mt-2">
-                                <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
-                                  Insumos por plato:
+                              {/* STOCK PARA PRODUCTO DIRECTO vs BADGES PARA PLATO ELABORADO */}
+                              {prod.tipoProducto === 'DIRECTO' ? (
+                                <div className="mt-2.5">
+                                  {(() => {
+                                    const directSup = supplies.find((s) => s.id === (prod.supplyId || prod.id));
+                                    const currentStock = directSup ? Number(directSup.stock) : 0;
+                                    const minAlert = Number(directSup?.alertaMinima) || 5;
+                                    const unitName = directSup?.unidad || 'botellas';
+                                    const isLow = currentStock <= minAlert && currentStock > 0;
+                                    const isOut = currentStock <= 0;
+
+                                    return (
+                                      <div
+                                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border ${
+                                          isOut
+                                            ? 'bg-red-50 text-red-700 border-red-200'
+                                            : isLow
+                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        }`}
+                                      >
+                                        <Package className="w-3.5 h-3.5" />
+                                        <span>
+                                          Stock disponible:{' '}
+                                          <strong className="font-mono text-sm">{currentStock}</strong> {unitName}
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
-                                <div className="flex flex-wrap gap-1">
-                                  {(prod.ingredients || []).map((ing, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200 font-medium"
-                                    >
-                                      {ing.label}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
+                              ) : (
+                                (prod.ingredients && prod.ingredients.length > 0) && (
+                                  <div className="mt-2">
+                                    <div className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-1">
+                                      Insumos por plato:
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {prod.ingredients.map((ing, idx) => (
+                                        <span
+                                          key={idx}
+                                          className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200 font-medium"
+                                        >
+                                          {ing.label}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )
+                              )}
 
                               {/* Alerta de bloqueo inteligente */}
                               {isBlocked && (
@@ -3047,6 +3559,19 @@ export default function LanchitaPOS() {
               >
                 <Plus className="w-4 h-4" />
                 <span>+ Nuevo Insumo</span>
+              </button>
+            )}
+
+            {/* BOTÓN: + NUEVO PRODUCTO / PLATO (Admin y Cocina/Barra) */}
+            {authSession?.role !== 'mozo_caja' && (
+              <button
+                type="button"
+                onClick={() => handleOpenProductModal()}
+                className="bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
+                title="Crear un plato elaborado con escandallo o producto de reventa directa"
+              >
+                <UtensilsCrossed className="w-4 h-4" />
+                <span>+ Nuevo Producto / Plato</span>
               </button>
             )}
 
@@ -4037,7 +4562,11 @@ export default function LanchitaPOS() {
                 </label>
                 <select
                   value={newSupplyForm.categoria}
-                  onChange={(e) => setNewSupplyForm({ ...newSupplyForm, categoria: e.target.value })}
+                  onChange={(e) => {
+                    const cat = e.target.value;
+                    const autoZone = ['Barra & Tragos', 'Bebidas & Refrescos'].includes(cat) ? 'zona_bar_terraza' : 'zona_cocina_salon';
+                    setNewSupplyForm({ ...newSupplyForm, categoria: cat, zona: autoZone });
+                  }}
                   className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
                 >
                   <option value="Cocina Marina">🐟 Cocina Marina</option>
@@ -4067,6 +4596,20 @@ export default function LanchitaPOS() {
                   <option value="bolsas">bolsas</option>
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                Zona Física de Almacén
+              </label>
+              <select
+                value={newSupplyForm.zona}
+                onChange={(e) => setNewSupplyForm({ ...newSupplyForm, zona: e.target.value })}
+                className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+              >
+                <option value="zona_cocina_salon">🐟 Cocina & Salón General</option>
+                <option value="zona_bar_terraza">🎤 Bar Karaoke & Terraza</option>
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -4351,6 +4894,507 @@ export default function LanchitaPOS() {
               <CheckCircle2 className="w-4 h-4" />
               <span>Confirmar Ingreso al Almacén</span>
             </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // MODAL: CREACIÓN Y EDICIÓN DE PRODUCTO / PLATO / ESCANDALLO
+  // =========================================================================
+  const renderProductModal = () => {
+    if (!showProductModal) return null;
+
+    const isDirect = productForm.tipoProducto === 'DIRECTO';
+    const isEditing = !!editingProduct;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150 overflow-y-auto">
+        <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[92vh]">
+          {/* Cabecera */}
+          <div className="p-4 bg-[#0F172A] text-white flex justify-between items-center">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                <UtensilsCrossed className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base leading-tight">
+                  {isEditing ? 'Editar Producto / Receta' : 'Nuevo Producto / Plato Marino'}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {isDirect
+                    ? 'Producto de reventa directa sin merma de cocina'
+                    : 'Plato elaborado con escandallo dinámico de insumos'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowProductModal(false)}
+              className="p-1 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveProduct} className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1">
+            {/* SELECTOR DE TIPO DE PRODUCTO (DIRECTO vs ELABORADO) */}
+            <div>
+              <label className="block text-xs font-black uppercase text-slate-600 mb-1.5 tracking-wider">
+                Tipo de Producto & Operatoria
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Opción A: Producto Directo */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setProductForm((prev) => ({
+                      ...prev,
+                      tipoProducto: 'DIRECTO',
+                      zonaDespacho: ['tragos', 'bebidas'].includes(prev.category) ? 'zona_bar_terraza' : prev.zonaDespacho,
+                    }))
+                  }
+                  className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    isDirect
+                      ? 'border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">📦</span>
+                    <div>
+                      <div className="font-extrabold text-xs text-slate-900">
+                        Opción A: Producto Directo / Reventa
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Gaseosas, cervezas, aguas, licores cerrados
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[10px] font-semibold text-emerald-800 bg-emerald-100/60 rounded-lg px-2 py-1">
+                    ✓ Sin receta · Descuento 1 a 1 de stock al vender
+                  </div>
+                </button>
+
+                {/* Opción B: Plato Elaborado */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setProductForm((prev) => ({
+                      ...prev,
+                      tipoProducto: 'ELABORADO',
+                    }))
+                  }
+                  className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    !isDirect
+                      ? 'border-amber-500 bg-amber-50/60 ring-2 ring-amber-500/20'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">👨‍🍳</span>
+                    <div>
+                      <div className="font-extrabold text-xs text-slate-900">
+                        Opción B: Plato Elaborado / Cocina
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Ceviches, tiraditos, chicharrones, arroces
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[10px] font-semibold text-amber-900 bg-amber-100/60 rounded-lg px-2 py-1">
+                    ✓ Escandallo dinámico · Descuenta insumos al preparar
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* DATOS GENERALES DEL PRODUCTO */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Nombre */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nombre del Producto / Plato <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={
+                    isDirect
+                      ? 'ej. Cerveza Pilsen 620ml, Gaseosa Inka Kola 500ml'
+                      : 'ej. Ceviche Mixto Rompeolas, Parihuela Especial'
+                  }
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+                />
+              </div>
+
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Categoría en Carta <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={productForm.category}
+                  onChange={(e) => {
+                    const nextCat = e.target.value;
+                    const defaultZone = ['tragos', 'bebidas'].includes(nextCat)
+                      ? 'zona_bar_terraza'
+                      : 'zona_cocina_salon';
+                    setProductForm({
+                      ...productForm,
+                      category: nextCat,
+                      zonaDespacho: defaultZone,
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+                >
+                  <option value="ceviches">🍋 Ceviches & Tiraditos</option>
+                  <option value="chicharrones">🍤 Chicharrones & Frituras</option>
+                  <option value="calientes">🍲 Platos Criollos & Calientes</option>
+                  <option value="tragos">🍻 Cervezas & Tragos (Terraza Karaoke)</option>
+                  <option value="bebidas">🥤 Bebidas & Refrescos</option>
+                </select>
+              </div>
+
+              {/* Precio */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Precio de Venta (S/) <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">S/</span>
+                  <input
+                    type="number"
+                    step="0.50"
+                    min="0"
+                    required
+                    placeholder="35.00"
+                    value={productForm.price}
+                    onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                    className="w-full bg-white border border-slate-300 rounded-xl pl-8 pr-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Zona de Despacho (Las 2 Zonas Reales) */}
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Zona Física de Despacho & Stock <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition ${
+                      productForm.zonaDespacho === 'zona_cocina_salon'
+                        ? 'bg-blue-50/70 border-blue-400 ring-1 ring-blue-400 text-blue-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="zonaDespacho"
+                      value="zona_cocina_salon"
+                      checked={productForm.zonaDespacho === 'zona_cocina_salon'}
+                      onChange={(e) => setProductForm({ ...productForm, zonaDespacho: e.target.value })}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-extrabold flex items-center gap-1">
+                        <span>🐟</span> Cocina & Salón General
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-normal">
+                        Pescados, mariscos, abarrotes, platos preparados
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition ${
+                      productForm.zonaDespacho === 'zona_bar_terraza'
+                        ? 'bg-purple-50/70 border-purple-400 ring-1 ring-purple-400 text-purple-950 font-bold'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="zonaDespacho"
+                      value="zona_bar_terraza"
+                      checked={productForm.zonaDespacho === 'zona_bar_terraza'}
+                      onChange={(e) => setProductForm({ ...productForm, zonaDespacho: e.target.value })}
+                      className="text-purple-600 focus:ring-purple-500"
+                    />
+                    <div className="text-xs">
+                      <div className="font-extrabold flex items-center gap-1">
+                        <span>🎤</span> Bar Karaoke & Terraza
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-normal">
+                        Cervezas, licores, gaseosas, aguas, hielo
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN ESPECÍFICA SEGÚN TIPO */}
+            {isDirect ? (
+              /* PANEL PRODUCTO DIRECTO */
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <Package className="w-4 h-4 text-emerald-600" />
+                  <span>Control de Stock Físico (Reventa 1 a 1)</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      {isEditing ? 'Stock Actual en Zona' : 'Stock Inicial'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={productForm.stockInicial}
+                      onChange={(e) => setProductForm({ ...productForm, stockInicial: e.target.value })}
+                      placeholder="24"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Alerta Stock Mínimo
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={productForm.alertaMinima}
+                      onChange={(e) => setProductForm({ ...productForm, alertaMinima: e.target.value })}
+                      placeholder="5"
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Unidad de Venta
+                    </label>
+                    <select
+                      value={productForm.unidadMedida}
+                      onChange={(e) => setProductForm({ ...productForm, unidadMedida: e.target.value })}
+                      className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F172A]"
+                    >
+                      <option value="botellas">botellas</option>
+                      <option value="latas">latas</option>
+                      <option value="unid">unidades</option>
+                      <option value="vasos">vasos</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Opción de vincular a insumo existente */}
+                <div className="pt-1">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={productForm.linkExistingSupply}
+                      onChange={(e) =>
+                        setProductForm({ ...productForm, linkExistingSupply: e.target.checked })
+                      }
+                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span>Vincular a un insumo existente de la base de datos (opcional)</span>
+                  </label>
+                  {productForm.linkExistingSupply && (
+                    <div className="mt-2">
+                      <select
+                        value={productForm.supplyId}
+                        onChange={(e) => {
+                          const targetId = e.target.value;
+                          const found = supplies.find((s) => s.id === targetId);
+                          setProductForm({
+                            ...productForm,
+                            supplyId: targetId,
+                            stockInicial: found ? found.stock.toString() : productForm.stockInicial,
+                            alertaMinima: found ? found.alertaMinima.toString() : productForm.alertaMinima,
+                            unidadMedida: found ? found.unidad : productForm.unidadMedida,
+                          });
+                        }}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="">-- Seleccionar insumo existente --</option>
+                        {supplies.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.nombre} ({s.stock} {s.unidad}) [{s.categoria}]
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-[11px] text-slate-500 bg-white p-2.5 rounded-xl border border-slate-200">
+                  ℹ️ Este producto se vinculará al almacén de{' '}
+                  <strong>
+                    {productForm.zonaDespacho === 'zona_bar_terraza'
+                      ? 'Bar Karaoke & Terraza'
+                      : 'Cocina & Salón General'}
+                  </strong>
+                  . Al venderlo en el POS, se descontará automáticamente 1 {productForm.unidadMedida} y se registrará en el Kardex.
+                </div>
+              </div>
+            ) : (
+              /* PANEL PLATO ELABORADO / ESCANDALLO DINÁMICO */
+              <div className="bg-amber-50/50 border border-amber-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🥣</span>
+                    <div>
+                      <h4 className="text-xs font-extrabold text-amber-950">
+                        Escandallo de Insumos por Porción (Receta Oficial)
+                      </h4>
+                      <p className="text-[11px] text-amber-800">
+                        Selecciona los insumos de la base de datos y la cantidad exacta que descontará cada plato servido.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddIngredientRow}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 transition active:scale-95 cursor-pointer shadow-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Insumo</span>
+                  </button>
+                </div>
+
+                {/* FILAS DE INSUMOS */}
+                <div className="space-y-2 mt-2">
+                  {productForm.ingredients.map((ing, idx) => {
+                    const selectedSupply = supplies.find((s) => s.id === ing.supplyId);
+
+                    return (
+                      <div
+                        key={idx}
+                        className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-xs flex flex-wrap sm:flex-nowrap items-center gap-2"
+                      >
+                        {/* Selector de Insumo */}
+                        <div className="flex-1 min-w-[180px]">
+                          <select
+                            value={ing.supplyId}
+                            onChange={(e) => handleUpdateIngredient(idx, 'supplyId', e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          >
+                            <option value="">-- Seleccionar Insumo --</option>
+                            {supplies.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.nombre} ({s.unidad}) · Disp: {s.stock} {s.unidad}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Cantidad por plato */}
+                        <div className="w-28 flex items-center gap-1">
+                          <input
+                            type="number"
+                            step="any"
+                            min="0.01"
+                            value={ing.qty}
+                            onChange={(e) => handleUpdateIngredient(idx, 'qty', e.target.value)}
+                            placeholder="Cant."
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 text-right"
+                          />
+                          <span className="text-[11px] font-mono font-bold text-slate-500 w-9 truncate">
+                            {selectedSupply?.unidad || 'cant'}
+                          </span>
+                        </div>
+
+                        {/* Etiqueta / Label visible */}
+                        <div className="flex-1 min-w-[130px]">
+                          <input
+                            type="text"
+                            value={ing.label}
+                            onChange={(e) => handleUpdateIngredient(idx, 'label', e.target.value)}
+                            placeholder="ej. 200g Pescado fresco"
+                            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                        </div>
+
+                        {/* Botón eliminar fila */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveIngredientRow(idx)}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          title="Quitar insumo de la receta"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-amber-900 pt-1">
+                  <span>
+                    Total de insumos configurados:{' '}
+                    <strong>
+                      {productForm.ingredients.filter((i) => i.supplyId && Number(i.qty) > 0).length}
+                    </strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddIngredientRow}
+                    className="font-bold underline hover:text-amber-950 cursor-pointer"
+                  >
+                    + Agregar otro ingrediente
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* BOTONES DE ACCIÓN */}
+            <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
+              <div>
+                {isEditing && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProduct(editingProduct.id)}
+                    className="px-3.5 py-2 border border-red-300 text-red-600 hover:bg-red-50 text-xs font-bold rounded-xl transition cursor-pointer"
+                  >
+                    Eliminar Plato
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowProductModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProduct}
+                  className="px-5 py-2 bg-[#0F172A] hover:bg-slate-800 text-amber-400 text-xs font-black rounded-xl shadow-md transition active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingProduct ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{isEditing ? 'Guardar Cambios' : 'Crear Plato / Producto'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </form>
         </div>
       </div>
@@ -5367,6 +6411,7 @@ export default function LanchitaPOS() {
       {renderEditSupplyModal()}
       {renderRestockModal()}
       {renderReceiptModal()}
+      {renderProductModal()}
     </div>
   );
 }
